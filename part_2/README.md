@@ -1,7 +1,7 @@
 # Part 2 — Adding Integrity to the Channel
 
 > **Article**: This part is the companion code for
-> [Building Your Own TLS — Part 2]
+> [Building Your Own TLS — Part 2](https://www.dmytrohuz.com/p/rebuilding-tls-part-2-adding-integrity)
 
 > **Series**: Rebuilding TLS from scratch (educational)
 >
