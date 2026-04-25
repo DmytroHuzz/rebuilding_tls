@@ -1,0 +1,946 @@
+---
+title: "Part 4 — Certificate-Authenticated Secure Channel"
+subtitle: "Building Your Own TLS, step by step"
+author: "Dmytro Huz"
+date: today
+toc: true
+toc-depth: 3
+number-sections: true
+format:
+  html:
+    theme: cosmo
+    embed-resources: true
+    code-fold: false
+    code-line-numbers: true
+    code-copy: true
+    highlight-style: github
+    fig-cap-location: bottom
+  pdf:
+    documentclass: scrartcl
+    toc: true
+    number-sections: true
+---
+
+# Where we are coming from {#sec-recap}
+
+Across the previous parts of this series we built a small but real secure channel:
+
+- **Part 1** — a plaintext client/server with a length-prefixed framing layer.
+- **Part 2** — symmetric record protection: HMAC, then AEAD with sequence numbers.
+- **Part 3** — replacing the pre-shared key with a real key exchange:
+  - **v1**: classic finite-field Diffie–Hellman.
+  - **v2**: X25519 (modern elliptic-curve DH).
+  - **v3**: X25519 + **HKDF** to derive directional session keys for AES-256-GCM.
+
+By the end of Part 3 v3, the pipeline looked like this:
+
+```
+handshake → shared secret → HKDF → session keys → AEAD records
+```
+
+Every connection got fresh keys. No hardcoded secrets. The on-the-wire format was
+already very close to TLS 1.3.
+
+::: {.callout-warning}
+## The gap that remained
+
+Part 3 v3 still had **no authentication**. The handshake proved that *someone*
+shared a secret with us, but not *who*. An active attacker on the network — a
+man-in-the-middle (MITM) — could substitute their own public keys in both
+directions and silently sit between client and server.
+
+This is what Part 4 fixes.
+:::
+
+# The MITM problem in one picture {#sec-mitm}
+
+```{mermaid}
+sequenceDiagram
+    participant C as Client
+    participant M as Mallory (MITM)
+    participant S as Server
+
+    Note over C,S: No authentication — keys are swappable
+
+    C->>M: ClientHello (client_pub)
+    M->>S: ClientHello (mallory_pub_B)
+    S->>M: ServerHello (server_pub)
+    M->>C: ServerHello (mallory_pub_A)
+
+    Note over C,M: shared_A = X25519(client_priv, mallory_pub_A)
+    Note over M,S: shared_B = X25519(mallory_priv_B, server_pub)
+
+    C->>M: AEAD encrypted with shared_A
+    M->>S: re-encrypts with shared_B
+    S-->>M: AEAD encrypted with shared_B
+    M-->>C: re-encrypts with shared_A
+```
+
+The cryptography is correct; the **identity** binding is missing. Both sides end up
+with a perfectly fine secure channel — to the wrong peer.
+
+The fix has two pieces:
+
+1. The server must prove **who it is**, using a **certificate** issued by an
+   authority the client trusts.
+2. The server must prove **that the public key it just sent really comes from it**,
+   by **signing** the exchanged handshake material with its private key.
+
+The rest of this walkthrough builds those two pieces and wires them into the
+existing v3 pipeline.
+
+# The big picture {#sec-bigpicture}
+
+Before the details, here is the whole story in one image. Read it from left to
+right, top to bottom. Every following subsection just zooms into one box.
+
+```{mermaid}
+flowchart TB
+    subgraph WORLD["The trust world<br/>(set up in advance)<br/>"]
+        direction LR
+        ROOT["🏛️ Root CA<br/>self-signed<br/><b>preinstalled in client</b>"]
+        INT["🏢 Intermediate CA<br/>signed by Root"]
+        SRV["🖥️ Server cert<br/>'localhost'<br/>signed by Intermediate<br/>+ private key kept secret"]
+        ROOT -->|signs| INT
+        INT -->|signs| SRV
+    end
+
+    subgraph LIVE["The live connection (happens every session)"]
+        direction LR
+        DH["🔑 X25519<br/>key exchange"]
+        AUTH["📜 Server sends:<br/>cert chain<br/>+ signature over keys"]
+        VERIFY["✅ Client checks:<br/>1. chain → trusted Root<br/>2. signature → cert's pubkey"]
+        SESS["🔐 Session keys<br/>(HKDF + AES-GCM)"]
+        DH --> AUTH --> VERIFY --> SESS
+    end
+
+    classDef trustBox fill:#eef6ff,stroke:#0366d6,stroke-width:1px,color:#000
+    class WORLD,LIVE trustBox
+
+    SRV -. presented during handshake .-> AUTH
+    ROOT -. used to verify chain .-> VERIFY
+    
+```
+
+Three things to take away from this picture:
+
+1. **Trust is set up in advance.** The client already has the Root CA before
+   it ever talks to the server. Nothing in the live connection adds new trust;
+   it only *uses* trust that was already there.
+2. **The server proves itself with two things.** A *certificate chain* (says
+   *who* it is) plus a *fresh signature* (says *it really is here, right now*).
+3. **The session keys come last.** Authentication happens first; only then do
+   we agree on the keys that will encrypt the actual application data.
+
+The next sections walk through each box.
+
+# Concepts you need first {#sec-concepts}
+
+## 1. Public-key cryptography in one picture
+
+A **keypair** is two linked values: a `private_key` you keep secret, and a
+`public_key` you give to everyone. They have a magic property: the private key
+can produce a **signature** over any bytes, and the public key can **verify**
+that signature — but cannot create one.
+
+```{mermaid}
+flowchart LR
+    A["📝 message<br/>'hello'"] --> SIGN
+    PRIV["🔒 private key<br/>(secret)"] --> SIGN["sign()"]
+    SIGN --> SIG["✍️ signature"]
+
+    A2["📝 same message"] --> VERIFY
+    SIG --> VERIFY["verify()"]
+    PUB["🔓 public key<br/>(shared)"] --> VERIFY
+    VERIFY --> OK{"✅ valid<br/>or<br/>❌ invalid"}
+```
+
+Two consequences we will rely on:
+
+- A valid signature **proves** the holder of the private key signed *exactly
+  these* bytes.
+- If even one byte changes, the signature no longer verifies.
+
+That is the entire trick behind everything that follows.
+
+## 2. From a public key to a certificate
+
+A bare public key has no name attached. Anyone can generate one. So how do you
+know "this public key belongs to `localhost`"?
+
+You ask someone you already trust to **sign that statement**. The signed
+statement is a **certificate**.
+
+```{mermaid}
+flowchart LR
+    BODY["📄 Cert body (tbsCertificate)<br/>━━━━━━━━━━━━━━━━<br/>subject: <b>localhost</b><br/>public_key: <b>0xAB12…</b><br/>valid_from / valid_to<br/>extensions"]
+    ISSUER_PRIV["🔒 Issuer's<br/>private key"]
+    BODY --> SIGN["sign()"]
+    ISSUER_PRIV --> SIGN
+    SIGN --> CERT["📜 X.509 Certificate<br/>━━━━━━━━━━━━━━━━<br/>cert body (above)<br/>+ ✍️ <b>issuer signature</b>"]
+```
+
+A certificate is just `(body, signature)`. The body says *what* is being
+claimed; the signature says *who* is claiming it. To trust a certificate, you
+must already trust the issuer's public key.
+
+::: {.callout-tip}
+## Mental model
+
+A certificate ≈ an ID card. The body is your photo and name; the signature is
+the government's hologram. The card is only believable to people who already
+trust that government.
+:::
+
+## 3. Self-signed roots: where trust starts
+
+Trust has to start somewhere. A **Root CA** signs its own certificate — its
+issuer is itself. Why is this OK? Because clients don't trust the root
+*because of its signature*; they trust it because **a copy of it is already
+in their trust store**, shipped with the OS or browser.
+
+```{mermaid}
+flowchart LR
+    ROOT["🏛️ Root CA cert<br/>━━━━━━━━━━━━<br/>subject: Root CA<br/>issuer: <b>Root CA</b> (itself)<br/>public_key: K_root"]
+    PRIV_ROOT["🔒 Root private key"]
+    ROOT --> SS["self-sign"]
+    PRIV_ROOT --> SS
+    SS --> ROOT_SIGNED["📜 self-signed Root cert"]
+    ROOT_SIGNED ==> STORE["📦 Client trust store<br/>(preinstalled)"]
+```
+
+If a certificate is in the trust store, it is trusted. Period. That is what
+"trust anchor" means.
+
+## 4. Intermediate CA: delegating signing power
+
+In practice the root almost never signs end-entity certificates directly.
+Roots are precious — their private keys are kept offline in vaults. Instead,
+the root signs an **Intermediate CA**, and the intermediate does the
+day-to-day signing.
+
+```{mermaid}
+flowchart LR
+    PRIV_ROOT["🔒 Root private key<br/>(in a vault)"]
+    INT_BODY["📄 Intermediate body<br/>subject: Intermediate CA<br/>public_key: K_int<br/>BasicConstraints: <b>ca=True</b>"]
+    INT_BODY --> SIGN_R["sign()"]
+    PRIV_ROOT --> SIGN_R
+    SIGN_R --> INT["📜 Intermediate cert<br/>signed by Root"]
+```
+
+The `ca=True` flag in the body is what gives this certificate the right to
+sign other certificates. Without it, no verifier would accept its signatures.
+
+## 5. Server certificate: the leaf
+
+The intermediate CA now signs the actual **server certificate**. This one has
+`ca=False` (it cannot sign anything else) and lists the DNS names it covers.
+
+```{mermaid}
+flowchart LR
+    PRIV_INT["🔒 Intermediate private key"]
+    SRV_BODY["📄 Server body<br/>subject: localhost<br/>public_key: K_srv<br/>SAN: <b>localhost</b><br/>BasicConstraints: <b>ca=False</b>"]
+    SRV_BODY --> SIGN_I["sign()"]
+    PRIV_INT --> SIGN_I
+    SIGN_I --> SRV["📜 Server cert<br/>signed by Intermediate"]
+```
+
+Meanwhile the **server's private key** never leaves the server. It is the
+only thing that can produce signatures verifiable by `K_srv`.
+
+## 6. The full chain, end to end
+
+Now stack the three together. Each arrow is one signature; the colour of the
+key tells you who held the pen.
+
+```{mermaid}
+flowchart TB
+    subgraph TRUSTED["📦 Client trust store"]
+        ROOT["🏛️ Root cert<br/>K_root, self-signed"]
+    end
+
+    INT["🏢 Intermediate cert<br/>K_int<br/>signed by K_root 🔒"]
+    SRV["🖥️ Server cert<br/>K_srv, SAN=localhost<br/>signed by K_int 🔒"]
+
+    ROOT -->|"signature 1"| INT
+    INT  -->|"signature 2"| SRV
+
+    SRV -. "server holds<br/>matching 🔒 K_srv_priv<br/>(stays on server)" .- KEY["🔒 server private key"]
+```
+
+Verifying the chain on the client side is just checking each link in turn,
+starting from the leaf:
+
+```{mermaid}
+flowchart LR
+    Q1["Server cert valid?<br/>signed by K_int? ✅"] -->
+    Q2["Intermediate valid?<br/>signed by K_root? ✅"] -->
+    Q3["K_root in trust store? ✅"] -->
+    OK["🎉 chain trusted →<br/>now I trust K_srv"]
+```
+
+If any check fails — bad signature, expired cert, missing CA flag, hostname
+mismatch — the whole chain is rejected.
+
+## 7. The missing piece: a fresh signature
+
+A verified chain only tells the client *"K_srv is the legitimate public key
+for `localhost`"*. It does **not** prove that the peer on the other end of
+this TCP connection actually holds the matching private key. An attacker who
+copies a real cert off the internet has the chain too — they just don't have
+the private key.
+
+So the server must do one extra thing during the handshake: **sign something
+fresh** that only it could sign right now.
+
+```{mermaid}
+sequenceDiagram
+    participant C as Client
+    participant S as Server (has 🔒 K_srv_priv)
+
+    C->>S: pubC (ephemeral X25519)
+    S->>C: pubS (ephemeral X25519)
+    Note right of S: signature = sign(K_srv_priv,<br/>   pubC ‖ pubS)
+    S->>C: cert chain + signature
+    Note over C: 1. verify chain → trust K_srv<br/>2. verify(K_srv, signature, pubC ‖ pubS)<br/>   ✅ peer really holds K_srv_priv<br/>   ✅ signed THIS session's keys
+```
+
+Why concatenate `pubC ‖ pubS`?
+
+- `pubS` is fresh (new ephemeral keypair every connection) → an attacker can't
+  replay an old signature.
+- `pubC` ties the signature to *this client*'s contribution → an attacker
+  can't grab the server's signature in flight and reuse it on a different
+  connection.
+
+The two checks together — **chain** *and* **fresh signature** — are what
+finally close the MITM gap from Part 3.
+
+::: {.callout-note}
+## Reality check: what does TLS 1.3 actually sign?
+
+In our toy protocol the "fresh" bytes are simply `pubC ‖ pubS`. Real TLS 1.3
+signs a hash of the entire handshake transcript so far, which protects more
+fields (cipher choice, extensions, etc.) but follows the same principle.
+:::
+
+# Architecture and files {#sec-arch}
+
+The Part 4 implementation lives in [part_4/implementation/](../implementation/):
+
+| File | Purpose |
+|---|---|
+| [certificate.py](../implementation/certificate.py) | Build, sign and verify X.509 certificates and chains. |
+| [setup_certificates.py](../implementation/setup_certificates.py) | Generate root + intermediate + server certs to disk (run once). |
+| [handshake.py](../implementation/handshake.py) | X25519 key exchange + ServerAuth (cert chain + signature). |
+| [key_schedule.py](../implementation/key_schedule.py) | HKDF session-key derivation (carried over from Part 3 v3). |
+| [record_protection.py](../implementation/record_protection.py) | AES-GCM record layer (carried over from Part 3 v3). |
+| [server_v4.py](../implementation/server_v4.py) | Runnable server. |
+| [client_v4.py](../implementation/client_v4.py) | Runnable client. |
+
+The full authenticated handshake looks like this:
+
+```{mermaid}
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant S as Server
+
+    Note over C: trusted_root in store
+    Note over S: server_key + cert chain on disk
+
+    C->>S: ClientHello { x25519_public_C }
+    S->>C: ServerHello { x25519_public_S }
+    S->>C: ServerAuth { server_cert, intermediate_cert, sig }
+
+    Note right of C: 1) verify chain to trusted_root<br/>2) verify sig over (pubC || pubS)<br/>   using server_cert.public_key
+    Note over C,S: shared_secret = X25519(priv, peer_pub)<br/>HKDF → client_write_key, server_write_key
+
+    C->>S: AEAD record (request)
+    S-->>C: AEAD record (response)
+```
+
+Phase 1 is the new authenticated handshake. Phase 2 is unchanged from Part 3 v3.
+
+# Building it step by step {#sec-build}
+
+## Step 1 — Names and extensions {#sec-step1}
+
+A certificate's `subject` and `issuer` are both X.509 **Names**: an ordered
+sequence of attributes (country, organization, common name…). We wrap that in a
+small data class so the shape is obvious at every call site.
+
+```python
+@dataclass(frozen=True)
+class CertificateName:
+    country_name: str
+    state_or_province_name: str
+    locality_name: str
+    organization_name: str
+    common_name: str
+
+    @property
+    def certificate_name(self) -> x509.Name:
+        return x509.Name([
+            x509.NameAttribute(NameOID.COUNTRY_NAME, self.country_name),
+            x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, self.state_or_province_name),
+            x509.NameAttribute(NameOID.LOCALITY_NAME, self.locality_name),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, self.organization_name),
+            x509.NameAttribute(NameOID.COMMON_NAME, self.common_name),
+        ])
+```
+
+Two helpers in [certificate.py](../implementation/certificate.py) produce the
+extensions appropriate for each role in the chain.
+
+### CA extensions
+
+```python
+def ca_extensions(public_key, issuer_certificate=None, path_length=None):
+    extensions = [
+        Extension(
+            oid=x509.ExtensionOID.BASIC_CONSTRAINTS,
+            critical=True,
+            value=x509.BasicConstraints(ca=True, path_length=path_length),
+        ),
+        Extension(
+            oid=x509.ExtensionOID.KEY_USAGE,
+            critical=True,
+            value=x509.KeyUsage(
+                digital_signature=False, content_commitment=False,
+                key_encipherment=False, data_encipherment=False,
+                key_agreement=False,
+                key_cert_sign=True, crl_sign=True,
+                encipher_only=False, decipher_only=False,
+            ),
+        ),
+        Extension(
+            oid=x509.ExtensionOID.SUBJECT_KEY_IDENTIFIER,
+            critical=False,
+            value=x509.SubjectKeyIdentifier.from_public_key(public_key),
+        ),
+    ]
+
+    if issuer_certificate is not None:
+        extensions.append(Extension(
+            oid=x509.ExtensionOID.AUTHORITY_KEY_IDENTIFIER,
+            critical=False,
+            value=x509.AuthorityKeyIdentifier.from_issuer_subject_key_identifier(
+                issuer_certificate.extensions
+                    .get_extension_for_class(x509.SubjectKeyIdentifier).value
+            ),
+        ))
+
+    return extensions
+```
+
+What each extension is doing:
+
+- **`BasicConstraints(ca=True)`** — this certificate is allowed to issue other
+  certificates. `path_length` caps how many further CAs may appear below it
+  (root uses `1`, intermediate uses `0`).
+- **`KeyUsage(key_cert_sign, crl_sign)`** — the only thing this CA key may do is
+  sign certificates and revocation lists. It deliberately cannot be used for
+  TLS handshake signing or encryption.
+- **`SubjectKeyIdentifier`** — names this CA's key, so children can point back
+  to it.
+- **`AuthorityKeyIdentifier`** — present on every cert except the root; copies
+  the issuer's `SKI` into this cert's `AKI`. This is the "next pointer" of the
+  chain.
+
+### Server (end-entity) extensions
+
+```python
+def server_extensions(public_key, dns_names, issuer_certificate):
+    return [
+        Extension(  # not a CA
+            oid=x509.ExtensionOID.BASIC_CONSTRAINTS,
+            critical=True,
+            value=x509.BasicConstraints(ca=False, path_length=None),
+        ),
+        Extension(
+            oid=x509.ExtensionOID.KEY_USAGE,
+            critical=True,
+            value=x509.KeyUsage(
+                digital_signature=True, key_encipherment=True,
+                # everything else False
+                content_commitment=False, data_encipherment=False,
+                key_agreement=False, key_cert_sign=False, crl_sign=False,
+                encipher_only=False, decipher_only=False,
+            ),
+        ),
+        Extension(  # this is a TLS server certificate
+            oid=x509.ExtensionOID.EXTENDED_KEY_USAGE,
+            critical=False,
+            value=x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]),
+        ),
+        Extension(  # the hostnames this cert is valid for
+            oid=x509.ExtensionOID.SUBJECT_ALTERNATIVE_NAME,
+            critical=False,
+            value=x509.SubjectAlternativeName([DNSName(n) for n in dns_names]),
+        ),
+        Extension(
+            oid=x509.ExtensionOID.AUTHORITY_KEY_IDENTIFIER,
+            critical=False,
+            value=x509.AuthorityKeyIdentifier.from_issuer_subject_key_identifier(
+                issuer_certificate.extensions
+                    .get_extension_for_class(x509.SubjectKeyIdentifier).value
+            ),
+        ),
+        Extension(
+            oid=x509.ExtensionOID.SUBJECT_KEY_IDENTIFIER,
+            critical=False,
+            value=x509.SubjectKeyIdentifier.from_public_key(public_key),
+        ),
+    ]
+```
+
+The differences from a CA cert are:
+
+- `ca=False` — this cert may not sign other certs.
+- `digital_signature` and `key_encipherment` instead of `key_cert_sign`.
+- `EXTENDED_KEY_USAGE = SERVER_AUTH` — it is a TLS *server* cert.
+- `SubjectAlternativeName` lists the DNS names the cert is valid for. Modern
+  verifiers ignore the legacy `commonName` and look here.
+
+## Step 2 — Building and signing certificates {#sec-step2}
+
+A certificate is built by `CertificateBuilder`, then signed with the issuer's
+private key:
+
+```python
+def issue_certificate(public_key, subject, issuer,
+                     issuer_private_key, extensions,
+                     validity_to, validity_from=None):
+    builder = (
+        x509.CertificateBuilder()
+        .subject_name(subject.certificate_name)
+        .issuer_name(issuer.certificate_name)
+        .public_key(public_key)
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(validity_from or datetime.now(timezone.utc))
+        .not_valid_after(validity_to)
+    )
+    for extension in extensions:
+        builder = builder.add_extension(extension.value, critical=extension.critical)
+    return builder.sign(private_key=issuer_private_key, algorithm=hashes.SHA256())
+```
+
+The signature covers everything in the certificate body (the `tbsCertificate`)
+using SHA-256 + RSA. After this, the certificate is immutable: any byte-level
+change invalidates the signature.
+
+::: {.callout-note}
+## Self-signed roots
+
+For the root CA, `subject == issuer` and the issuer key is the root's own
+private key. It signs its own certificate. That self-signature is not what
+makes the root trusted — being in the trust store is. The signature is only
+checked for integrity.
+:::
+
+## Step 3 — Generating the chain on disk {#sec-step3}
+
+[setup_certificates.py](../implementation/setup_certificates.py) generates a full
+three-level chain and writes PEM files into `certs/`. A trimmed version:
+
+```python
+# Root CA — self-signed
+root_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+root_cert = certificate.issue_certificate(
+    public_key=root_key.public_key(),
+    subject=root_name, issuer=root_name,
+    issuer_private_key=root_key,            # signs itself
+    extensions=certificate.ca_extensions(root_key.public_key(), path_length=1),
+    validity_from=now, validity_to=now + timedelta(days=365 * 10),
+)
+
+# Intermediate CA — signed by the root
+intermediate_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+intermediate_cert = certificate.issue_certificate(
+    public_key=intermediate_key.public_key(),
+    subject=intermediate_name, issuer=root_name,
+    issuer_private_key=root_key,            # ROOT signs the intermediate
+    extensions=certificate.ca_extensions(
+        intermediate_key.public_key(),
+        issuer_certificate=root_cert,       # so AKI points at root SKI
+        path_length=0,
+    ),
+    validity_from=now, validity_to=now + timedelta(days=365 * 5),
+)
+
+# Server (end-entity) — signed by the intermediate
+server_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+server_cert = certificate.issue_certificate(
+    public_key=server_key.public_key(),
+    subject=server_name, issuer=intermediate_name,
+    issuer_private_key=intermediate_key,    # INTERMEDIATE signs the server
+    extensions=certificate.server_extensions(
+        server_key.public_key(),
+        dns_names=[DNS_NAME],
+        issuer_certificate=intermediate_cert,
+    ),
+    validity_from=now, validity_to=now + timedelta(days=365 * 2),
+)
+```
+
+Notice **who holds which private key** at each step — the issuer signs with its
+own private key; the certified party only contributes a public key (and stores
+its private key separately).
+
+The script then performs a sanity-check verification before writing files, then
+saves four files into `part_4/implementation/certs/`:
+
+| File | Held by |
+|---|---|
+| `root_cert.pem` | Client (trust anchor) |
+| `intermediate_cert.pem` | Server (sent during handshake) |
+| `server_cert.pem` | Server (sent during handshake) |
+| `server_key.pem` | Server (kept secret) |
+
+## Step 4 — Verifying a chain {#sec-step4}
+
+Verification is delegated to the modern verifier in `cryptography`:
+
+```python
+def verify_server_certificate(root_certificate, intermediate_certificates,
+                              server_certificate, dns_name,
+                              validation_time=None):
+    store = Store([root_certificate])
+    builder = PolicyBuilder().store(store)
+    if validation_time is not None:
+        builder = builder.time(validation_time)
+    verifier = builder.build_server_verifier(DNSName(dns_name))
+    return verifier.verify(server_certificate, intermediate_certificates)
+```
+
+What `verifier.verify(...)` does internally:
+
+1. **Chain building**: starting from the leaf, walk up the chain using
+   `AKI → SKI` matches and subject/issuer name matches until a certificate in
+   the trust `Store` is reached.
+2. **Signature checks**: for every link, verify
+   `issuer_pubkey.verify(child.signature, child.tbs_certificate_bytes, …)`.
+3. **Validity window**: every cert must be currently valid (or valid at
+   `validation_time` if pinned).
+4. **`BasicConstraints`**: every non-leaf cert must have `ca=True`.
+5. **`KeyUsage`**: CAs must have `key_cert_sign`.
+6. **`ExtendedKeyUsage`**: leaf must allow `SERVER_AUTH`.
+7. **DNS name match**: the requested `DNSName` must appear in the leaf's SAN.
+
+If anything fails it raises an exception. On success it returns the verified
+chain (leaf → … → root) as a list.
+
+```{mermaid}
+flowchart TB
+    L["Server cert<br/>SAN: localhost<br/>AKI = X"] -->|signed by| I["Intermediate<br/>SKI = X<br/>AKI = Y"]
+    I -->|signed by| R["Root<br/>SKI = Y<br/>(in trust store)"]
+
+    classDef anchor fill:#dff,stroke:#06c,stroke-width:2px
+    class R anchor
+```
+
+## Step 5 — The authenticated handshake {#sec-step5}
+
+The handshake builds on Part 3 v3, adding one new server-to-client message
+called **ServerAuth**.
+
+### Message tags
+
+```python
+TAG_X25519_PUBLIC      = 0x0010   # from part_3
+TAG_CERTIFICATE        = 0x0020   # one DER-encoded X.509 certificate
+TAG_CERTIFICATE_VERIFY = 0x0021   # RSA-PSS signature over (pubC || pubS)
+```
+
+A `ServerAuth` record contains: the server cert (DER), zero or more
+intermediates (DER), and finally one `CertificateVerify` signature.
+
+### Signing on the server
+
+```python
+def _sign_public_keys(server_private_key, client_public_bytes, server_public_bytes):
+    data = client_public_bytes + server_public_bytes
+    return server_private_key.sign(
+        data,
+        padding.PSS(
+            mgf=padding.MGF1(hashes.SHA256()),
+            salt_length=padding.PSS.MAX_LENGTH,
+        ),
+        hashes.SHA256(),
+    )
+```
+
+Two important properties:
+
+- The signed bytes are *both* public keys, in a fixed order. The client knows
+  the same two values, so the client can independently rebuild the message and
+  verify.
+- The X25519 public keys are **ephemeral** — generated freshly per connection.
+  So the signature is bound to *this* session and cannot be replayed.
+
+### Verifying on the client
+
+```python
+def _verify_signature(public_key, signature, client_public_bytes, server_public_bytes):
+    data = client_public_bytes + server_public_bytes
+    public_key.verify(
+        signature,
+        data,
+        padding.PSS(mgf=padding.MGF1(hashes.SHA256()),
+                    salt_length=padding.PSS.MAX_LENGTH),
+        hashes.SHA256(),
+    )
+```
+
+The `public_key` here is taken from the **already-verified** server certificate.
+That ordering matters: never use the public key from the certificate before
+the chain has been validated.
+
+### Putting it together — client side
+
+```python
+def client_handshake(sock, trusted_root, dns_name):
+    # 1) Generate ephemeral keypair, send ClientHello, receive ServerHello.
+    client_private = X25519PrivateKey.generate()
+    client_public_bytes = client_private.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+    send_record(sock, encode_message([(TAG_X25519_PUBLIC, client_public_bytes)]))
+
+    server_public_bytes = _read_field(recv_record(sock), TAG_X25519_PUBLIC)
+    server_public = X25519PublicKey.from_public_bytes(server_public_bytes)
+
+    # 2) Receive ServerAuth, parse certs and signature.
+    auth_fields = decode_message(recv_record(sock))
+    cert_der_list = [v for t, v in auth_fields if t == TAG_CERTIFICATE]
+    signature     = next(v for t, v in auth_fields if t == TAG_CERTIFICATE_VERIFY)
+
+    server_cert         = x509.load_der_x509_certificate(cert_der_list[0])
+    intermediate_certs  = [x509.load_der_x509_certificate(d) for d in cert_der_list[1:]]
+
+    # 3) Verify chain, THEN signature.
+    certificate.verify_server_certificate(
+        root_certificate=trusted_root,
+        intermediate_certificates=intermediate_certs,
+        server_certificate=server_cert,
+        dns_name=dns_name,
+    )
+    _verify_signature(server_cert.public_key(), signature,
+                      client_public_bytes, server_public_bytes)
+
+    # 4) Derive session keys exactly as in Part 3 v3.
+    shared_secret = client_private.exchange(server_public)
+    return derive_session_keys(shared_secret)
+```
+
+### Putting it together — server side
+
+```python
+def server_handshake(sock, server_private_key, server_cert, intermediate_certs):
+    # 1) Generate ephemeral keypair, exchange Hellos.
+    server_private = X25519PrivateKey.generate()
+    server_public_bytes = server_private.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+
+    client_public_bytes = _read_field(recv_record(sock), TAG_X25519_PUBLIC)
+    client_public = X25519PublicKey.from_public_bytes(client_public_bytes)
+
+    send_record(sock, encode_message([(TAG_X25519_PUBLIC, server_public_bytes)]))
+
+    # 2) Sign (pubC || pubS) and send ServerAuth.
+    signature = _sign_public_keys(server_private_key,
+                                  client_public_bytes, server_public_bytes)
+
+    auth_fields  = [(TAG_CERTIFICATE, server_cert.public_bytes(Encoding.DER))]
+    auth_fields += [(TAG_CERTIFICATE, c.public_bytes(Encoding.DER)) for c in intermediate_certs]
+    auth_fields += [(TAG_CERTIFICATE_VERIFY, signature)]
+    send_record(sock, encode_message(auth_fields))
+
+    # 3) Same shared-secret + HKDF as Part 3 v3.
+    shared_secret = server_private.exchange(client_public)
+    return derive_session_keys(shared_secret)
+```
+
+## Step 6 — Key schedule and record layer (recap) {#sec-step6}
+
+Nothing here changes from Part 3 v3.
+
+```python
+def derive_session_keys(shared_secret):
+    client_write_key = HKDF(
+        algorithm=hashes.SHA256(), length=32,
+        salt=None, info=b"part4 client write key",
+    ).derive(shared_secret)
+
+    server_write_key = HKDF(
+        algorithm=hashes.SHA256(), length=32,
+        salt=None, info=b"part4 server write key",
+    ).derive(shared_secret)
+
+    return client_write_key, server_write_key
+```
+
+The record layer uses the per-direction keys with AES-256-GCM and a sequence
+number bound into the AAD:
+
+```
++-------------+--------------+-------------------------------+
+| seq (8 B)   | nonce (12 B) | ciphertext_and_tag (N+16 B)   |
++-------------+--------------+-------------------------------+
+```
+
+Why nothing changed: authentication only fixes *who you are talking to*. The
+question of *how data is protected once you are talking* was already solved in
+Part 2 / Part 3 v3.
+
+## Step 7 — Server and client wiring {#sec-step7}
+
+[server_v4.py](../implementation/server_v4.py) loads the credentials, runs the
+authenticated handshake, and then exchanges one application record:
+
+```python
+server_key, server_cert, intermediate_certs = load_server_credentials()
+
+with socket.socket(...) as server:
+    conn, addr = server.accept()
+    client_write_key, server_write_key = server_handshake(
+        conn,
+        server_private_key=server_key,
+        server_cert=server_cert,
+        intermediate_certs=intermediate_certs,
+    )
+
+    raw_request = recv_record(conn)
+    request = unprotect_record(client_write_key, recv_seq, raw_request)
+    # ... build response ...
+    send_record(conn, protect_record(server_write_key, send_seq, response))
+```
+
+[client_v4.py](../implementation/client_v4.py) is symmetric: it loads the
+trusted root, runs the authenticated handshake, then sends an HTTP-style
+request inside one AEAD record:
+
+```python
+trusted_root = load_trusted_root()
+
+with socket.socket(...) as client:
+    client.connect((HOST, PORT))
+    client_write_key, server_write_key = client_handshake(
+        client,
+        trusted_root=trusted_root,
+        dns_name=DNS_NAME,
+    )
+
+    send_record(client, protect_record(client_write_key, send_seq, request))
+    raw_response = recv_record(client)
+    response = unprotect_record(server_write_key, recv_seq, raw_response)
+```
+
+# Running the example {#sec-run}
+
+From `part_4/implementation/`:
+
+```bash
+# 1. Generate the certificate chain (only needed once).
+python setup_certificates.py
+
+# 2. Start the server.
+python server_v4.py
+
+# 3. In another terminal, run the client.
+python client_v4.py
+```
+
+Expected output highlights on the client:
+
+```
+Loaded trusted root: <Name(...,CN=Root CA)>
+[handshake] Client: starting authenticated handshake
+  Generated ephemeral keypair
+  -> Sent ClientHello
+  <- Received ServerHello
+  <- Received ServerAuth
+  Verifying certificate chain for 'localhost'...
+  Certificate chain: VALID
+  Verifying CertificateVerify signature...
+  CertificateVerify: VALID
+  [key_schedule] Derived session keys: ...
+[handshake] Client: handshake complete — authenticated session keys ready
+```
+
+# Why this defeats the MITM {#sec-defeats-mitm}
+
+Replay the attack from @sec-mitm against the Part 4 protocol:
+
+```{mermaid}
+sequenceDiagram
+    participant C as Client
+    participant M as Mallory
+    participant S as Server
+
+    C->>M: ClientHello (client_pub)
+    M->>S: ClientHello (mallory_pub_B)
+    S->>M: ServerHello (server_pub) + ServerAuth { server_cert, sig over (mallory_pub_B || server_pub) }
+    M->>C: ServerHello (mallory_pub_A) + ServerAuth { ??? , ??? }
+    Note over C: verify chain → must end at trusted root<br/>verify sig over (client_pub || mallory_pub_A)
+    Note over C: ❌ Mallory cannot produce that signature<br/>without server's private key
+```
+
+Mallory has two impossible tasks:
+
+1. **Provide a valid certificate chain** for the server's name. Without
+   compromising a CA, she cannot.
+2. **Forge a signature** over `(client_pub, mallory_pub_A)` using the server's
+   private key. The server only signed `(mallory_pub_B, server_pub)`, and
+   Mallory does not have the server's private key to re-sign new keys.
+
+Either she gives up impersonating the server, or the verification fails on the
+client and the connection is aborted before any application data is sent.
+
+::: {.callout-tip}
+## The two checks are both required
+
+If you only check the certificate chain, an attacker who recorded a real
+server's `ServerAuth` once could replay it. The signature over the *fresh*
+ephemeral keys is what makes each session unforgeable.
+
+If you only check the signature, you are trusting an arbitrary public key.
+The certificate chain is what binds that public key to a name you actually
+trust.
+:::
+
+# What is still simplified {#sec-simplifications}
+
+Compared to real TLS 1.3 we deliberately leave several things out:
+
+- **Only server authentication.** No client certificates / mutual TLS.
+- **Signed bytes are just `pubC || pubS`.** Real TLS signs a hash of the entire
+  handshake transcript, which prevents a wider class of downgrade attacks.
+- **No cipher-suite negotiation.** AES-256-GCM and X25519 are hardcoded.
+- **No revocation checking** (CRL / OCSP). A compromised intermediate would
+  remain trusted until expiry.
+- **No session resumption, no 0-RTT, no extensions, no HelloRetryRequest.**
+- **PEM files on disk** instead of a real PKI deployment.
+
+Those simplifications keep every line of code readable while preserving the
+core security property the previous parts were missing.
+
+# Summary {#sec-summary}
+
+- Parts 1–3 built confidentiality and integrity, but not identity.
+- Without identity, key exchange alone cannot stop a man-in-the-middle.
+- Part 4 introduces an X.509 certificate chain (root → intermediate → server)
+  and a per-session signature over the exchanged ephemeral keys.
+- The client's verification is *chain first, signature second*, using the
+  public key from the verified certificate.
+- The record layer and key schedule are unchanged from Part 3 v3 — only the
+  handshake gained authentication.
+
+After Part 4 the protocol has all the essential pieces of a modern TLS 1.3
+handshake, in a few hundred lines of Python you can read end-to-end.
+
+# References {#sec-refs}
+
+- RFC 5280 — *Internet X.509 Public Key Infrastructure Certificate and CRL Profile.*
+- RFC 5869 — *HMAC-based Extract-and-Expand Key Derivation Function (HKDF).*
+- RFC 7748 — *Elliptic Curves for Security* (X25519).
+- RFC 8446 — *The Transport Layer Security (TLS) Protocol Version 1.3.*
+- [`cryptography` library — X.509 reference](https://cryptography.io/en/latest/x509/)
