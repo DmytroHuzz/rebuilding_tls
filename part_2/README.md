@@ -97,6 +97,18 @@ not encrypted.
 | `server_v2_aead.py` | 3 | Server using AEAD protection |
 | `tampering_demo_hmac.py` | 1 | Proves that Part 1's bit-flipping attack is now detected |
 
+
+## Prerequisites
+
+- Python 3.10+
+- `pip install cryptography`
+
+Run commands from the `part_2/` directory:
+
+```bash
+cd part_2
+```
+
 ## How to Run
 
 ```bash
@@ -142,6 +154,11 @@ python tampering_demo_hmac.py
 This demo encrypts `b"amount=100"`, flips one ciphertext byte (the same
 attack from Part 1), and shows that verification now **fails**.  The
 attacker's modification is detected.
+
+## Where to Go Next
+
+- Part 3: replace pre-shared keys with ephemeral key exchange
+- Part 4 (planned): add authentication and trust validation
 
 ## What Is Still Broken
 
