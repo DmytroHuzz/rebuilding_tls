@@ -121,6 +121,15 @@ part_3/
     mitm_explainer.md                ← why MITM is still possible
 ```
 
+
+## Prerequisites
+
+- Python 3.10+
+- `pip install cryptography`
+
+From repository root, either run commands exactly as shown below or `cd`
+into each version folder first.
+
 ## How to Run
 
 ```bash
@@ -168,6 +177,11 @@ python client_v3.py
 ```
 
 Full pipeline: handshake, key derivation, encrypted application data.
+
+## Where to Go Next
+
+- Part 4 (planned): certificates + signatures for authentication
+- Part 4+ (planned): trust chain validation and stronger transcript binding
 
 ## What Is Still Broken
 

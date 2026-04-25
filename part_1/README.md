@@ -28,6 +28,18 @@ By the end you'll understand:
 | `client_v1.py` | Encrypted client (uses `crypto.py` + `framing.py`) |
 | `ctr_malleability_demo.py` | **Attack demo**: flips `amount=100` → `amount=900` without the key |
 
+
+## Prerequisites
+
+- Python 3.10+
+- `pip install cryptography`
+
+Run commands from the `part_1/` directory:
+
+```bash
+cd part_1
+```
+
 ## How to Run
 
 ```bash
@@ -81,6 +93,12 @@ Decrypted result:    amount=900
 The decryption succeeds with **no error**. Neither the client nor the server
 can tell the message was tampered with. This is why encryption without
 integrity checking is considered broken.
+
+## Where to Go Next
+
+- Part 2: integrity (HMAC, sequence numbers, AEAD)
+- Part 3: dynamic key exchange (DH/X25519 + HKDF)
+- Part 4 (planned): authentication via certificates and signatures
 
 ## What's Missing (Fixed in Later Parts)
 
