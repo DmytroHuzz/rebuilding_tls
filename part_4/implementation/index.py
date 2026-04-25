@@ -2,178 +2,110 @@ from datetime import datetime, timedelta, timezone
 
 import certificate
 from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography import x509
 
 
-root_certificate_name = certificate.CertificateName(
+def generate_rsa_key():
+    """Generate an RSA key pair suitable for this educational TLS example."""
+    return rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+    )
+
+
+now = datetime.now(timezone.utc)
+dns_name = "www.rebuilt-tls.com"
+
+# 1. Create the trust anchor.
+#
+# A root CA certificate is self-signed: the subject and issuer are the same
+# name, and the root private key signs the certificate.  Real operating systems
+# and browsers ship with many trusted roots.  In this toy example we trust only
+# the root certificate generated below.
+root_name = certificate.CertificateName(
     country_name="AT",
     state_or_province_name="Vorarlberg",
     locality_name="Dornbirn",
     organization_name="Rebuilt TLS",
     common_name="Root CA",
 )
-
-root_key = rsa.generate_private_key(
-    public_exponent=65537,
-    key_size=2048,
-)
-root_csr = certificate.create_certificate_signing_request(
+root_key = generate_rsa_key()
+root_certificate = certificate.issue_certificate(
     public_key=root_key.public_key(),
-    subject=root_certificate_name,
-    issuer=root_certificate_name,
-    extensions=[
-        x509.Extension(
-            oid=x509.ExtensionOID.BASIC_CONSTRAINTS,
-            critical=True,
-            value=x509.BasicConstraints(ca=True, path_length=None),
-        ),
-        x509.Extension(
-            oid=x509.ExtensionOID.KEY_USAGE,
-            critical=True,
-            value=x509.KeyUsage(
-                digital_signature=False,
-                content_commitment=False,
-                key_encipherment=False,
-                data_encipherment=False,
-                key_agreement=False,
-                key_cert_sign=True,
-                crl_sign=True,
-                encipher_only=False,
-                decipher_only=False,
-            ),
-        ),
-        x509.Extension(
-            oid=x509.ExtensionOID.SUBJECT_KEY_IDENTIFIER,
-            critical=False,
-            value=x509.SubjectKeyIdentifier.from_public_key(root_key.public_key()),
-        ),
-    ],
-    validity_to=datetime.now(timezone.utc) + timedelta(days=365 * 10),
+    subject=root_name,
+    issuer=root_name,
+    issuer_private_key=root_key,
+    # The root may create one more CA level below it: the intermediate.
+    extensions=certificate.ca_extensions(root_key.public_key(), path_length=1),
+    validity_from=now,
+    validity_to=now + timedelta(days=365 * 10),
 )
 
-root_certificate = certificate.sign_certificate_signing_request(root_csr, root_key)
-
-
-intermediate_certificate_name = certificate.CertificateName(
+# 2. Create an intermediate CA.
+#
+# The intermediate is also a CA, but it is not self-signed.  Its issuer is the
+# root CA, so the root private key signs this certificate.  This mirrors how
+# public roots usually delegate day-to-day certificate issuance.
+intermediate_name = certificate.CertificateName(
     country_name="AT",
     state_or_province_name="Vorarlberg",
     locality_name="Dornbirn",
     organization_name="Rebuilt TLS",
     common_name="Intermediate CA",
 )
-
-intermediate_key = rsa.generate_private_key(
-    public_exponent=65537,
-    key_size=2048,
-)
-intermediate_csr = certificate.create_certificate_signing_request(
+intermediate_key = generate_rsa_key()
+intermediate_certificate = certificate.issue_certificate(
     public_key=intermediate_key.public_key(),
-    subject=intermediate_certificate_name,
-    issuer=root_certificate_name,
-    extensions=[
-        x509.Extension(
-            oid=x509.ExtensionOID.BASIC_CONSTRAINTS,
-            critical=True,
-            value=x509.BasicConstraints(ca=True, path_length=None),
-        ),
-        x509.Extension(
-            oid=x509.ExtensionOID.KEY_USAGE,
-            critical=True,
-            value=x509.KeyUsage(
-                digital_signature=False,
-                content_commitment=False,
-                key_encipherment=False,
-                data_encipherment=False,
-                key_agreement=False,
-                key_cert_sign=True,
-                crl_sign=True,
-                encipher_only=False,
-                decipher_only=False,
-            ),
-        ),
-        x509.Extension(
-            oid=x509.ExtensionOID.AUTHORITY_KEY_IDENTIFIER,
-            critical=False,
-            value=x509.AuthorityKeyIdentifier.from_issuer_subject_key_identifier(
-                root_certificate.extensions.get_extension_for_class(
-                    x509.SubjectKeyIdentifier
-                ).value
-            ),
-        ),
-        x509.Extension(
-            oid=x509.ExtensionOID.SUBJECT_KEY_IDENTIFIER,
-            critical=False,
-            value=x509.SubjectKeyIdentifier.from_public_key(
-                intermediate_key.public_key()
-            ),
-        ),
-    ],
-    validity_to=datetime.now(timezone.utc) + timedelta(days=365 * 5),
-)
-intermediate_certificate = certificate.sign_certificate_signing_request(
-    intermediate_csr, root_key
+    subject=intermediate_name,
+    issuer=root_name,
+    issuer_private_key=root_key,
+    extensions=certificate.ca_extensions(
+        public_key=intermediate_key.public_key(),
+        issuer_certificate=root_certificate,
+        # The intermediate may issue leaf certificates, but not more CAs.
+        path_length=0,
+    ),
+    validity_from=now,
+    validity_to=now + timedelta(days=365 * 5),
 )
 
-end_entity_certificate_name = certificate.CertificateName(
+# 3. Create the server certificate.
+#
+# This certificate represents the TLS server for dns_name.  It is an end-entity
+# certificate: it can authenticate a server, but it cannot sign another
+# certificate.  The intermediate CA signs it.
+server_name = certificate.CertificateName(
     country_name="AT",
     state_or_province_name="Vorarlberg",
     locality_name="Dornbirn",
     organization_name="Rebuilt TLS",
-    common_name="www.rebuilt-tls.com",
+    common_name=dns_name,
+)
+server_key = generate_rsa_key()
+server_certificate = certificate.issue_certificate(
+    public_key=server_key.public_key(),
+    subject=server_name,
+    issuer=intermediate_name,
+    issuer_private_key=intermediate_key,
+    extensions=certificate.server_extensions(
+        public_key=server_key.public_key(),
+        dns_names=[dns_name],
+        issuer_certificate=intermediate_certificate,
+    ),
+    validity_from=now,
+    validity_to=now + timedelta(days=365 * 2),
 )
 
-end_entity_key = rsa.generate_private_key(
-    public_exponent=65537,
-    key_size=2048,
-)
-end_entity_csr = certificate.create_certificate_signing_request(
-    public_key=end_entity_key.public_key(),
-    subject=end_entity_certificate_name,
-    issuer=intermediate_certificate_name,
-    extensions=[
-        x509.Extension(
-            oid=x509.ExtensionOID.BASIC_CONSTRAINTS,
-            critical=True,
-            value=x509.BasicConstraints(ca=False, path_length=None),
-        ),
-        x509.Extension(
-            oid=x509.ExtensionOID.SUBJECT_ALTERNATIVE_NAME,
-            critical=False,
-            value=x509.SubjectAlternativeName(
-                [
-                    # Describe what sites we want this certificate for.
-                    x509.DNSName("www.rebuilt-tls.com"),
-                ]
-            ),
-        ),
-        x509.Extension(
-            oid=x509.ExtensionOID.AUTHORITY_KEY_IDENTIFIER,
-            critical=False,
-            value=x509.AuthorityKeyIdentifier.from_issuer_subject_key_identifier(
-                intermediate_certificate.extensions.get_extension_for_class(
-                    x509.SubjectKeyIdentifier
-                ).value
-            ),
-        ),
-        x509.Extension(
-            oid=x509.ExtensionOID.SUBJECT_KEY_IDENTIFIER,
-            critical=False,
-            value=x509.SubjectKeyIdentifier.from_public_key(
-                end_entity_key.public_key()
-            ),
-        ),
-    ],
-    validity_to=datetime.now(timezone.utc) + timedelta(days=365 * 2),
-)
-end_entity_certificate = certificate.sign_certificate_signing_request(
-    end_entity_csr, intermediate_key
+# 4. Verify the chain as a TLS client would.
+#
+# The verifier receives the server certificate plus the intermediate chain from
+# the server.  It already has the trusted root locally.  Verification checks the
+# signatures, validity dates, CA constraints, key usages, and requested DNS name.
+verified_chain = certificate.verify_server_certificate(
+    root_certificate=root_certificate,
+    intermediate_certificates=[intermediate_certificate],
+    server_certificate=server_certificate,
+    dns_name=dns_name,
+    validation_time=now,
 )
 
-print(
-    certificate.verify_certificate(
-        root_certificate=root_certificate,
-        intermediate_certificates=[intermediate_certificate],
-        end_entity_certificate=end_entity_certificate,
-        dns_name="www.rebuilt-tls.com",
-    )
-)
+print(f"Verified certificate chain length: {len(verified_chain)}")
