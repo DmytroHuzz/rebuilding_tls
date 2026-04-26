@@ -8,17 +8,28 @@
 #
 # WHAT CHANGED FROM PART 3 v3:
 #   The client now loads the trusted root certificate, and during the
-#   handshake it verifies the server's certificate chain and signature.
-#   This closes the man-in-the-middle vulnerability from Part 3.
+#   handshake it verifies the server's IDENTITY (X.509 chain) and the
+#   CertificateVerify signature.  This closes the man-in-the-middle
+#   vulnerability from Part 3.
+#
+# TWO KINDS OF KEYS THE CLIENT DEALS WITH:
+#   - IDENTITY (incoming, RSA): never owned by the client; only verified.
+#       The client trusts the root CA and uses it to validate the server's
+#       certificate chain, then trusts the RSA public key inside the
+#       server cert.
+#   - EPHEMERAL (X25519): the client GENERATES its own per-connection
+#       keypair, sends the public half in ClientHello, and uses the
+#       resulting shared secret to derive AES-GCM session keys.
 #
 # THE AUTHENTICATION FLOW:
-#   1. X25519 key exchange (ephemeral public keys) — same as Part 3.
-#   2. Server sends its certificate chain + a signature over the public
-#      keys (CertificateVerify).
-#   3. Client verifies the chain back to the trusted root.
-#   4. Client verifies the signature using the server certificate's
-#      public key — this proves the server holds the matching private key.
-#   5. Both derive session keys via HKDF and proceed to application data.
+#   1. Generate EPHEMERAL X25519 keypair, send public half in ClientHello.
+#   2. Receive server's EPHEMERAL X25519 public key in ServerHello.
+#   3. Receive server's IDENTITY chain + CertificateVerify in ServerAuth.
+#   4. Verify the chain back to the trusted root  → trust the RSA pubkey.
+#   5. Verify CertificateVerify with that RSA pubkey
+#      → proves the peer holds the IDENTITY private key
+#      AND that it signed THESE specific ephemeral keys.
+#   6. Derive session keys via HKDF from the X25519 shared secret.
 #
 # PREREQUISITES:
 #   Run setup_certificates.py first to generate the certificate files.
@@ -38,8 +49,8 @@ sys.path.insert(
 from cryptography import x509
 
 from framing import send_record, recv_record
-from handshake import client_handshake
-from record_protection import protect_record, unprotect_record
+from part_4.implementation.handshake import client_handshake
+from part_4.implementation.record_protection import protect_record, unprotect_record
 
 HOST = "127.0.0.1"
 PORT = 10004
