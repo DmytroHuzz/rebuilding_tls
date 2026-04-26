@@ -136,6 +136,7 @@ motivates the next part.
 - **Reveals:** the MITM from Part 3 is closed — the client now trusts
   the server's identity (chain) **and** that this specific session was
   signed by it (CertificateVerify).
+- **Article:** [Building Your Own TLS — Part 4](https://www.dmytrohuz.com/p/rebuilding-tls-part-4-certificates).
 - **Walkthrough:** rendered HTML at
   [dmytrohuzz.github.io/rebuilding_tls/part_4/walkthrough/walkthrough.html](https://dmytrohuzz.github.io/rebuilding_tls/part_4/walkthrough/walkthrough.html)
   (diagrams, structural explanations, end-to-end code).
@@ -305,6 +306,10 @@ project deliberately leaves out:
 ## Links
 
 - Series landing page — **[Rebuilding TLS from Scratch — My Complete Learning Journey](https://www.dmytrohuz.com/p/rebuilding-tls-from-scratch-my-complete)**
+- Per-part articles —
+  [Part 1](https://www.dmytrohuz.com/p/45f5ee51-a230-4937-b025-cf4784aed417) ·
+  [Part 2](https://www.dmytrohuz.com/p/rebuilding-tls-part-2-adding-integrity) ·
+  [Part 4](https://www.dmytrohuz.com/p/rebuilding-tls-part-4-certificates)
 - Part 4 walkthrough (rendered) — [dmytrohuzz.github.io/rebuilding_tls/.../walkthrough.html](https://dmytrohuzz.github.io/rebuilding_tls/part_4/walkthrough/walkthrough.html)
 - Repository — [github.com/DmytroHuzz/rebuilding_tls](https://github.com/DmytroHuzz/rebuilding_tls)
 - Author's blog / newsletter — [dmytrohuz.com](https://www.dmytrohuz.com/)
