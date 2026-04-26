@@ -1,5 +1,7 @@
 # Part 3 — Key Exchange: From Pre-Shared Keys to Diffie-Hellman
 
+> ⬆ [Back to repository root](../README.md)
+
 > **Series**: Rebuilding TLS from scratch (educational)
 >
 > Part 2 gave us strong **record-layer protection** — HMAC for integrity,
@@ -180,8 +182,10 @@ Full pipeline: handshake, key derivation, encrypted application data.
 
 ## Where to Go Next
 
-- Part 4 (planned): certificates + signatures for authentication
-- Part 4+ (planned): trust chain validation and stronger transcript binding
+- [Part 4](../part_4/implementation/README.md) — certificates + signatures
+  for authentication. Closes the MITM gap explained below.
+- The Part 4 walkthrough article (with diagrams) is at
+  [dmytrohuzz.github.io/rebuilding_tls/.../walkthrough.html](https://dmytrohuzz.github.io/rebuilding_tls/part_4/walkthrough/walkthrough.html).
 
 ## What Is Still Broken
 
@@ -189,15 +193,15 @@ Part 3 solves the key-distribution problem but introduces a new one:
 
 | Problem | Why it matters | Fixed in |
 |---------|---------------|----------|
-| **No authentication** | Client cannot verify the server's identity | Part 4 (certificates + signatures) |
-| **MITM still possible** | An active attacker can substitute public keys during the handshake | Part 4 |
-| **No trust chain** | No Certificate Authority hierarchy to validate identities | Part 4 |
-| **No transcript hash** | Real TLS includes handshake messages in key derivation | Part 4+ |
-| **No cipher suite negotiation** | We hardcode X25519 + AES-256-GCM | Part 4+ |
+| **No authentication** | Client cannot verify the server's identity | [Part 4](../part_4/implementation/README.md) (certificates + signatures) |
+| **MITM still possible** | An active attacker can substitute public keys during the handshake | [Part 4](../part_4/implementation/README.md) |
+| **No trust chain** | No Certificate Authority hierarchy to validate identities | [Part 4](../part_4/implementation/README.md) |
+| **No transcript hash** | Real TLS includes handshake messages in key derivation | beyond Part 4 |
+| **No cipher suite negotiation** | We hardcode X25519 + AES-256-GCM | beyond Part 4 |
 
 **Key insight**: Key exchange gives you confidentiality against passive
 eavesdroppers.  Authentication gives you protection against active
-attackers.  You need both.  Part 3 has the first half.  Part 4 adds the
+attackers.  You need both.  Part 3 has the first half.  [Part 4](../part_4/implementation/README.md) adds the
 second.
 
 See [v3_hkdf_session_keys/mitm_explainer.md](v3_hkdf_session_keys/mitm_explainer.md)

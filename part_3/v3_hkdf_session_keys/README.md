@@ -1,5 +1,7 @@
 # Version 3 — HKDF Session Keys
 
+> ⬆ [Back to repository root](../../README.md) · [Part 3 overview](../README.md) · ➡ [Part 4 adds authentication](../../part_4/implementation/README.md)
+
 ## What This Version Does
 
 This is the final and most important version in Part 3.  It takes the

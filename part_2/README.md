@@ -1,7 +1,7 @@
 # Part 2 — Adding Integrity to the Channel
 
-> **Article**: This part is the companion code for
-> [Building Your Own TLS — Part 2](https://www.dmytrohuz.com/p/rebuilding-tls-part-2-adding-integrity)
+> ⬆ [Back to repository root](../README.md)
+> · 📘 Article: [Building Your Own TLS — Part 2](https://www.dmytrohuz.com/p/rebuilding-tls-part-2-adding-integrity)
 
 > **Series**: Rebuilding TLS from scratch (educational)
 >
@@ -157,8 +157,8 @@ attacker's modification is detected.
 
 ## Where to Go Next
 
-- Part 3: replace pre-shared keys with ephemeral key exchange
-- Part 4 (planned): add authentication and trust validation
+- [Part 3](../part_3/README.md) — replace pre-shared keys with ephemeral key exchange
+- [Part 4](../part_4/implementation/README.md) — add authentication and trust validation
 
 ## What Is Still Broken
 
@@ -166,11 +166,11 @@ Part 2 adds integrity, but the protocol is still far from real TLS:
 
 | Problem | Why it matters | Fixed in |
 |---------|---------------|----------|
-| Pre-shared keys | Both sides must know the key in advance — no way to establish a key securely over the network | Part 3 (Diffie-Hellman) |
-| No handshake | No negotiation of algorithms, no fresh session keys | Part 3+ |
-| No peer identity | The client cannot verify it's talking to the real server (and vice versa) | Part 4 (certificates) |
-| No trust model | No certificate authority chain, no way to decide who to trust | Part 4+ |
-| No forward secrecy | If the pre-shared key leaks, all past and future sessions are compromised | Part 3 (ephemeral DH) |
+| Pre-shared keys | Both sides must know the key in advance — no way to establish a key securely over the network | [Part 3](../part_3/README.md) (Diffie-Hellman) |
+| No handshake | No negotiation of algorithms, no fresh session keys | [Part 3](../part_3/README.md)+ |
+| No peer identity | The client cannot verify it's talking to the real server (and vice versa) | [Part 4](../part_4/implementation/README.md) (certificates) |
+| No trust model | No certificate authority chain, no way to decide who to trust | [Part 4](../part_4/implementation/README.md)+ |
+| No forward secrecy | If the pre-shared key leaks, all past and future sessions are compromised | [Part 3](../part_3/README.md) (ephemeral DH) |
 
 ## Protocol Format Summary
 

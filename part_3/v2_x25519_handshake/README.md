@@ -1,5 +1,7 @@
 # Version 2 — X25519 Handshake
 
+> ⬆ [Back to repository root](../../README.md) · [Part 3 overview](../README.md)
+
 ## What This Version Does
 
 Replaces the classic Diffie-Hellman math from v1 with **X25519**, a

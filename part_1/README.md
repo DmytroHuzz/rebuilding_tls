@@ -1,7 +1,7 @@
 # Part 1 — Encryption Without Integrity
 
-> **Article**: This part is the companion code for
-> [Building Your Own TLS — Part 1](https://www.dmytrohuz.com/p/45f5ee51-a230-4937-b025-cf4784aed417)
+> ⬆ [Back to repository root](../README.md)
+> · 📘 Article: [Building Your Own TLS — Part 1](https://www.dmytrohuz.com/p/45f5ee51-a230-4937-b025-cf4784aed417)
 
 ## What You'll Learn
 
@@ -96,17 +96,18 @@ integrity checking is considered broken.
 
 ## Where to Go Next
 
-- Part 2: integrity (HMAC, sequence numbers, AEAD)
-- Part 3: dynamic key exchange (DH/X25519 + HKDF)
-- Part 4 (planned): authentication via certificates and signatures
+- [Part 2](../part_2/README.md) — integrity (HMAC, sequence numbers, AEAD)
+- [Part 3](../part_3/README.md) — dynamic key exchange (DH → X25519 + HKDF)
+- [Part 4](../part_4/implementation/README.md) — authentication via X.509
+  certificates and a handshake signature (closes the MITM gap)
 
 ## What's Missing (Fixed in Later Parts)
 
 | Problem | Solution | Where |
 |---------|----------|-------|
-| No integrity — bit-flipping attacks | HMAC or AEAD (AES-GCM) | Part 2+ |
-| Hardcoded pre-shared key | Diffie-Hellman key exchange | Part 3+ |
-| No authentication — who is the server? | Certificates + signatures | Part 4+ |
+| No integrity — bit-flipping attacks | HMAC or AEAD (AES-GCM) | [Part 2](../part_2/README.md) |
+| Hardcoded pre-shared key | Diffie-Hellman key exchange | [Part 3](../part_3/README.md) |
+| No authentication — who is the server? | Certificates + signatures | [Part 4](../part_4/implementation/README.md) |
 
 ## Wireshark Tips
 
