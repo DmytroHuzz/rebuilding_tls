@@ -8,7 +8,7 @@ The goal is to rebuild core TLS ideas step-by-step, starting from insecure plain
 1. **Confidentiality** (encryption)
 2. **Integrity** (tamper detection)
 3. **Key exchange** (ephemeral session keys)
-4. **Authentication** (planned)
+4. **Authentication** (X.509 certificates + handshake signature)
 
 > ⚠️ This project is intentionally educational and incomplete by design. It is **not** production TLS and should not be used to secure real systems.
 
@@ -18,7 +18,8 @@ The goal is to rebuild core TLS ideas step-by-step, starting from insecure plain
 .
 ├── part_1/  # Encryption only (and why that is not enough)
 ├── part_2/  # Integrity: HMAC, sequence numbers, AEAD
-└── part_3/  # Key exchange: DH -> X25519 -> HKDF session keys
+├── part_3/  # Key exchange: DH -> X25519 -> HKDF session keys
+└── part_4/  # Authentication: X.509 chain + CertificateVerify signature
 ```
 
 ## Learning Roadmap
@@ -49,6 +50,22 @@ The goal is to rebuild core TLS ideas step-by-step, starting from insecure plain
 - Includes MITM explanation for unauthenticated handshakes
 
 📘 Read details: [`part_3/README.md`](part_3/README.md)
+
+### Part 4 — Certificate-Authenticated Secure Channel
+
+- X.509 certificate chain: root CA → intermediate CA → server cert
+- Clear separation of **identity** keys (RSA, long-term) and **ephemeral**
+  keys (X25519, per-session)
+- New `ServerAuth` handshake message: certificate chain + `CertificateVerify`
+  RSA-PSS signature over the exchanged ephemeral public keys
+- Client verifies the chain to a trusted root, then verifies the signature
+  — closes the man-in-the-middle gap from Part 3
+
+📘 Read details: [`part_4/implementation/README.md`](part_4/implementation/README.md)
+
+📖 Full walkthrough article (concepts, diagrams, code, run instructions):
+[`part_4/walkthrough/walkthrough.html`](part_4/walkthrough/walkthrough.html)
+(open in a browser — self-contained, no server required)
 
 ## Quick Start
 
@@ -84,25 +101,27 @@ python server_v3.py
 
 ## Current Security Status by Part
 
-| Capability | Part 1 | Part 2 | Part 3 |
-|---|---:|---:|---:|
-| Confidentiality (encryption) | ✅ | ✅ | ✅ |
-| Integrity / tamper detection | ❌ | ✅ | ✅ |
-| Replay / ordering protection | ❌ | ✅ (seq in stage 2+) | ✅ |
-| Dynamic key agreement | ❌ | ❌ | ✅ |
-| Forward secrecy | ❌ | ❌ | ✅ (ephemeral key exchange) |
-| Peer authentication | ❌ | ❌ | ❌ |
-| MITM resistance | ❌ | ❌ | ❌ |
+| Capability | Part 1 | Part 2 | Part 3 | Part 4 |
+|---|---:|---:|---:|---:|
+| Confidentiality (encryption) | ✅ | ✅ | ✅ | ✅ |
+| Integrity / tamper detection | ❌ | ✅ | ✅ | ✅ |
+| Replay / ordering protection | ❌ | ✅ (seq in stage 2+) | ✅ | ✅ |
+| Dynamic key agreement | ❌ | ❌ | ✅ | ✅ |
+| Forward secrecy | ❌ | ❌ | ✅ (ephemeral key exchange) | ✅ |
+| Peer authentication | ❌ | ❌ | ❌ | ✅ (server cert + signature) |
+| MITM resistance | ❌ | ❌ | ❌ | ✅ |
 
 ## What Comes Next
 
-Planned next steps for the series (Part 4+):
+The series has reached a working authenticated TLS-like channel. Possible
+next steps if the series continues:
 
-- Certificate-based authentication
-- Signature verification of handshake data
-- Trust chain / CA validation model
-- Stronger handshake transcript binding
-- More TLS-like negotiation semantics
+- Mutual TLS (client certificates)
+- Full handshake transcript binding (sign the whole transcript hash, not just
+  the ephemeral public keys)
+- Cipher-suite negotiation and extensions
+- Session resumption / 0-RTT
+- Revocation checking (CRL / OCSP)
 
 ## Why This Repo Exists
 
