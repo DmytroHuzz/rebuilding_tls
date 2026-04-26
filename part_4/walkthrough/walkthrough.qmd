@@ -644,17 +644,17 @@ choice, extensions, server name, etc.) but follows the same principle.
 
 # Architecture and files {#sec-arch}
 
-The Part 4 implementation lives in [part_4/implementation/](../implementation/):
+The Part 4 implementation lives in [part_4/implementation/](https://github.com/DmytroHuzz/rebuilding_tls/blob/main/part_4/implementation/):
 
 | File | Purpose |
 |---|---|
-| [certificate.py](../implementation/certificate.py) | Build, sign and verify X.509 certificates and chains. |
-| [setup_certificates.py](../implementation/setup_certificates.py) | Generate root + intermediate + server certs to disk (run once). |
-| [handshake.py](../implementation/handshake.py) | X25519 key exchange + ServerAuth (cert chain + signature). |
-| [key_schedule.py](../implementation/key_schedule.py) | HKDF session-key derivation (carried over from Part 3 v3). |
-| [record_protection.py](../implementation/record_protection.py) | AES-GCM record layer (carried over from Part 3 v3). |
-| [server_v4.py](../implementation/server_v4.py) | Runnable server. |
-| [client_v4.py](../implementation/client_v4.py) | Runnable client. |
+| [certificate.py](https://github.com/DmytroHuzz/rebuilding_tls/blob/main/part_4/implementation/certificate.py) | Build, sign and verify X.509 certificates and chains. |
+| [setup_certificates.py](https://github.com/DmytroHuzz/rebuilding_tls/blob/main/part_4/implementation/setup_certificates.py) | Generate root + intermediate + server certs to disk (run once). |
+| [handshake.py](https://github.com/DmytroHuzz/rebuilding_tls/blob/main/part_4/implementation/handshake.py) | X25519 key exchange + ServerAuth (cert chain + signature). |
+| [key_schedule.py](https://github.com/DmytroHuzz/rebuilding_tls/blob/main/part_4/implementation/key_schedule.py) | HKDF session-key derivation (carried over from Part 3 v3). |
+| [record_protection.py](https://github.com/DmytroHuzz/rebuilding_tls/blob/main/part_4/implementation/record_protection.py) | AES-GCM record layer (carried over from Part 3 v3). |
+| [server_v4.py](https://github.com/DmytroHuzz/rebuilding_tls/blob/main/part_4/implementation/server_v4.py) | Runnable server. |
+| [client_v4.py](https://github.com/DmytroHuzz/rebuilding_tls/blob/main/part_4/implementation/client_v4.py) | Runnable client. |
 
 The full authenticated handshake looks like this:
 
@@ -709,7 +709,7 @@ class CertificateName:
         ])
 ```
 
-Two helpers in [certificate.py](../implementation/certificate.py) produce the
+Two helpers in [certificate.py](https://github.com/DmytroHuzz/rebuilding_tls/blob/main/part_4/implementation/certificate.py) produce the
 extensions appropriate for each role in the chain.
 
 ### CA extensions
@@ -860,7 +860,7 @@ checked for integrity.
 
 ## Step 3 — Generating the chain on disk {#sec-step3}
 
-[setup_certificates.py](../implementation/setup_certificates.py) generates a full
+[setup_certificates.py](https://github.com/DmytroHuzz/rebuilding_tls/blob/main/part_4/implementation/setup_certificates.py) generates a full
 three-level chain and writes PEM files into `certs/`. A trimmed version:
 
 ```python
@@ -1166,7 +1166,7 @@ Part 2 / Part 3 v3.
 
 ## Step 7 — Server and client wiring {#sec-step7}
 
-[server_v4.py](../implementation/server_v4.py) loads the long-term IDENTITY
+[server_v4.py](https://github.com/DmytroHuzz/rebuilding_tls/blob/main/part_4/implementation/server_v4.py) loads the long-term IDENTITY
 material, runs the authenticated handshake, and then exchanges one
 application record:
 
@@ -1194,7 +1194,7 @@ with socket.socket(...) as server:
     send_record(conn, protect_record(server_write_key, send_seq, response))
 ```
 
-[client_v4.py](../implementation/client_v4.py) is symmetric: it loads the
+[client_v4.py](https://github.com/DmytroHuzz/rebuilding_tls/blob/main/part_4/implementation/client_v4.py) is symmetric: it loads the
 trusted root, runs the authenticated handshake, then sends an HTTP-style
 request inside one AEAD record. The client never owns an identity key —
 it only *trusts* one (transitively, via `trusted_root`):

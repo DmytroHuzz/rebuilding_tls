@@ -64,8 +64,7 @@ The goal is to rebuild core TLS ideas step-by-step, starting from insecure plain
 📘 Read details: [`part_4/implementation/README.md`](part_4/implementation/README.md)
 
 📖 Full walkthrough article (concepts, diagrams, code, run instructions):
-[`part_4/walkthrough/walkthrough.html`](part_4/walkthrough/walkthrough.html)
-(open in a browser — self-contained, no server required)
+[Part 4 walkthrough (HTML)](https://dmytrohuzz.github.io/rebuilding_tls/part_4/walkthrough/walkthrough.html)
 
 ## Quick Start
 
