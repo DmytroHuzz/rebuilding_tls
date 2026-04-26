@@ -108,7 +108,7 @@ from handshake_messages import (
     TAG_X25519_PUBLIC,
 )
 from utils import hex_preview
-from part_4.implementation.key_schedule import derive_session_keys
+from key_schedule import derive_session_keys
 import certificate
 
 # New handshake message tags for certificate authentication.

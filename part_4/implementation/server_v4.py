@@ -36,8 +36,8 @@ from cryptography.hazmat.primitives.serialization import load_pem_private_key
 from cryptography import x509
 
 from framing import send_record, recv_record
-from part_4.implementation.handshake import server_handshake
-from part_4.implementation.record_protection import protect_record, unprotect_record
+from handshake import server_handshake
+from record_protection import protect_record, unprotect_record
 
 HOST = "127.0.0.1"
 PORT = 10004

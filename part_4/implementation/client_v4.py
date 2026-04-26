@@ -49,8 +49,8 @@ sys.path.insert(
 from cryptography import x509
 
 from framing import send_record, recv_record
-from part_4.implementation.handshake import client_handshake
-from part_4.implementation.record_protection import protect_record, unprotect_record
+from handshake import client_handshake
+from record_protection import protect_record, unprotect_record
 
 HOST = "127.0.0.1"
 PORT = 10004
