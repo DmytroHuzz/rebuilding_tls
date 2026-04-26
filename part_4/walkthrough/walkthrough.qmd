@@ -15,6 +15,8 @@ format:
     code-copy: true
     highlight-style: github
     fig-cap-location: bottom
+    mermaid:
+      theme: default
   pdf:
     documentclass: scrartcl
     toc: true
@@ -55,6 +57,7 @@ This is what Part 4 fixes.
 # The MITM problem in one picture {#sec-mitm}
 
 ```{mermaid}
+%%{init: {'theme':'base', 'themeVariables': {'background':'#ffffff','primaryColor':'#eef6ff','primaryBorderColor':'#0366d6','primaryTextColor':'#000','lineColor':'#555','clusterBkg':'#fafbfc','clusterBorder':'#888','tertiaryColor':'#ffffff','tertiaryBorderColor':'#888','tertiaryTextColor':'#000','noteBkgColor':'#fff8c5','noteTextColor':'#000','noteBorderColor':'#b5a000','actorBkg':'#eef6ff','actorBorder':'#0366d6','actorTextColor':'#000','signalColor':'#333','signalTextColor':'#000','sequenceNumberColor':'#fff'}}}%%
 sequenceDiagram
     participant C as Client
     participant M as Mallory (MITM)
@@ -95,6 +98,7 @@ Before the details, here is the whole story in one image. Read it from left to
 right, top to bottom. Every following subsection just zooms into one box.
 
 ```{mermaid}
+%%{init: {'theme':'base', 'themeVariables': {'background':'#ffffff','primaryColor':'#eef6ff','primaryBorderColor':'#0366d6','primaryTextColor':'#000','lineColor':'#555','clusterBkg':'#fafbfc','clusterBorder':'#888','tertiaryColor':'#ffffff','tertiaryBorderColor':'#888','tertiaryTextColor':'#000','noteBkgColor':'#fff8c5','noteTextColor':'#000','noteBorderColor':'#b5a000','actorBkg':'#eef6ff','actorBorder':'#0366d6','actorTextColor':'#000','signalColor':'#333','signalTextColor':'#000','sequenceNumberColor':'#fff'}}}%%
 flowchart TB
     subgraph WORLD["The trust world<br/>(set up in advance)<br/>"]
         direction LR
@@ -143,6 +147,7 @@ protocol: **there are two completely separate kinds of keys**, and they exist
 for different reasons. Mixing them up is the most common source of confusion.
 
 ```{mermaid}
+%%{init: {'theme':'base', 'themeVariables': {'background':'#ffffff','primaryColor':'#eef6ff','primaryBorderColor':'#0366d6','primaryTextColor':'#000','lineColor':'#555','clusterBkg':'#fafbfc','clusterBorder':'#888','tertiaryColor':'#ffffff','tertiaryBorderColor':'#888','tertiaryTextColor':'#000','noteBkgColor':'#fff8c5','noteTextColor':'#000','noteBorderColor':'#b5a000','actorBkg':'#eef6ff','actorBorder':'#0366d6','actorTextColor':'#000','signalColor':'#333','signalTextColor':'#000','sequenceNumberColor':'#fff'}}}%%
 flowchart LR
     subgraph IDENTITY["🪪 IDENTITY keys (RSA, long-term)"]
         direction TB
@@ -179,6 +184,7 @@ ephemeral key I am using right now" (session). Everything else stays neatly
 separated:
 
 ```{mermaid}
+%%{init: {'theme':'base', 'themeVariables': {'background':'#ffffff','primaryColor':'#eef6ff','primaryBorderColor':'#0366d6','primaryTextColor':'#000','lineColor':'#555','clusterBkg':'#fafbfc','clusterBorder':'#888','tertiaryColor':'#ffffff','tertiaryBorderColor':'#888','tertiaryTextColor':'#000','noteBkgColor':'#fff8c5','noteTextColor':'#000','noteBorderColor':'#b5a000','actorBkg':'#eef6ff','actorBorder':'#0366d6','actorTextColor':'#000','signalColor':'#333','signalTextColor':'#000','sequenceNumberColor':'#fff'}}}%%
 flowchart LR
     IDPRIV["🔒 identity_private_key<br/>(RSA)"] -->|"sign()"| SIG["✍️ CertificateVerify<br/>signature"]
     EPHC["⚡ client_ephemeral_public"] --> SIG
@@ -202,6 +208,7 @@ can produce a **signature** over any bytes, and the public key can **verify**
 that signature — but cannot create one.
 
 ```{mermaid}
+%%{init: {'theme':'base', 'themeVariables': {'background':'#ffffff','primaryColor':'#eef6ff','primaryBorderColor':'#0366d6','primaryTextColor':'#000','lineColor':'#555','clusterBkg':'#fafbfc','clusterBorder':'#888','tertiaryColor':'#ffffff','tertiaryBorderColor':'#888','tertiaryTextColor':'#000','noteBkgColor':'#fff8c5','noteTextColor':'#000','noteBorderColor':'#b5a000','actorBkg':'#eef6ff','actorBorder':'#0366d6','actorTextColor':'#000','signalColor':'#333','signalTextColor':'#000','sequenceNumberColor':'#fff'}}}%%
 flowchart LR
     A["📝 message<br/>'hello'"] --> SIGN
     PRIV["🔒 private key<br/>(secret)"] --> SIGN["sign()"]
@@ -221,6 +228,69 @@ Two consequences we will rely on:
 
 That is the entire trick behind everything that follows.
 
+### Under the hood: what `sign()` and `verify()` actually compute
+
+The "sign" and "verify" boxes above are not magic — they are concrete
+operations you can describe in two lines. Almost every signature scheme
+used in practice (RSA-PSS, ECDSA, Ed25519, …) follows the **same
+two-step recipe**:
+
+1. **Hash** the message with a cryptographic hash like SHA-256 to get a
+   short fixed-size *digest* (32 bytes for SHA-256, regardless of how big
+   the message is).
+2. **Apply the signature algorithm** to that digest using either the
+   private key (to produce a signature) or the public key (to verify one).
+
+```{mermaid}
+%%{init: {'theme':'base', 'themeVariables': {'background':'#ffffff','primaryColor':'#eef6ff','primaryBorderColor':'#0366d6','primaryTextColor':'#000','lineColor':'#555','clusterBkg':'#fafbfc','clusterBorder':'#888','tertiaryColor':'#ffffff','tertiaryBorderColor':'#888','tertiaryTextColor':'#000','noteBkgColor':'#fff8c5','noteTextColor':'#000','noteBorderColor':'#b5a000','actorBkg':'#eef6ff','actorBorder':'#0366d6','actorTextColor':'#000','signalColor':'#333','signalTextColor':'#000','sequenceNumberColor':'#fff'}}}%%
+flowchart TB
+    subgraph SIGN_SIDE["✍️ sign(private_key, message)"]
+        direction TB
+        M1["📝 message<br/>(any length)"]
+        M1 --> H1["SHA-256<br/>(or any cryptographic hash)"]
+        H1 --> DIG1["🔢 digest<br/>(32 bytes, fixed)"]
+        DIG1 --> ALG1["signature algorithm<br/>(RSA-PSS / ECDSA / Ed25519 / …)<br/>using 🔒 private_key"]
+        ALG1 --> SIG1["✍️ signature<br/>(opaque bytes)"]
+    end
+
+    subgraph VERIFY_SIDE["🔎 verify(public_key, signature, message)"]
+        direction TB
+        M2["📝 same message"]
+        M2 --> H2["SHA-256<br/>(same hash function)"]
+        H2 --> DIG2["🔢 digest<br/>(must equal the signer's)"]
+        SIG2["✍️ received signature"] --> ALG2["signature algorithm verify<br/>using 🔓 public_key"]
+        DIG2 --> ALG2
+        ALG2 --> OK{"✅ valid<br/>or<br/>❌ invalid"}
+    end
+```
+
+A few things this picture makes precise:
+
+- **Why hash first?** The signature algorithms have a fixed input size and
+  are slow. Hashing collapses any-length input to a small digest, so the
+  expensive operation runs on a constant 32 bytes.
+- **Why is the signature *bound* to the message?** Because the digest is.
+  Change one byte of the message → completely different digest →
+  signature no longer verifies.
+- **Why can only the holder of `private_key` produce a valid signature?**
+  That's the asymmetry built into RSA / ECDSA / Ed25519: given the public
+  key alone, forging a signature is computationally infeasible.
+- **What does `verify()` actually return?** Either *valid* (the signature
+  was produced by the matching private key over exactly this message) or
+  *invalid* (anything else — wrong key, wrong message, tampered
+  signature). It never tells you *who* signed; that knowledge has to come
+  from elsewhere (e.g. a certificate).
+
+We will reuse this exact picture in three different roles below:
+
+| Role                                 | What gets signed                                  | Whose private key signs       | Whose public key verifies     |
+|--------------------------------------|---------------------------------------------------|-------------------------------|-------------------------------|
+| **Issuing a certificate** (§2)       | the cert body (`tbsCertificate`)                  | the issuer (a CA)             | anyone who trusts the issuer  |
+| **CertificateVerify** during handshake (§7) | the two ephemeral X25519 public keys              | the server's identity key     | the client (after chain check) |
+| **Self-signed root** (§3)            | the root's own cert body                          | the root itself               | the root itself (sanity check) |
+
+Same machinery, three different jobs.
+
 ## 2. From a public key to a certificate
 
 A **certificate** is a small structured document that binds a public key to an
@@ -238,6 +308,7 @@ You ask someone you already trust to **sign that statement**. The signed
 statement is a **certificate**.
 
 ```{mermaid}
+%%{init: {'theme':'base', 'themeVariables': {'background':'#ffffff','primaryColor':'#eef6ff','primaryBorderColor':'#0366d6','primaryTextColor':'#000','lineColor':'#555','clusterBkg':'#fafbfc','clusterBorder':'#888','tertiaryColor':'#ffffff','tertiaryBorderColor':'#888','tertiaryTextColor':'#000','noteBkgColor':'#fff8c5','noteTextColor':'#000','noteBorderColor':'#b5a000','actorBkg':'#eef6ff','actorBorder':'#0366d6','actorTextColor':'#000','signalColor':'#333','signalTextColor':'#000','sequenceNumberColor':'#fff'}}}%%
 flowchart LR
     BODY["📄 Cert body (tbsCertificate)<br/>━━━━━━━━━━━━━━━━<br/>subject: <b>localhost</b><br/>public_key: <b>0xAB12…</b><br/>valid_from / valid_to<br/>extensions"]
     ISSUER_PRIV["🔒 Issuer's<br/>private key"]
@@ -265,6 +336,7 @@ called `tbsCertificate` — literally **"to be signed"** — because it is
 exactly the bytes the issuer signs.
 
 ```{mermaid}
+%%{init: {'theme':'base', 'themeVariables': {'background':'#ffffff','primaryColor':'#eef6ff','primaryBorderColor':'#0366d6','primaryTextColor':'#000','lineColor':'#555','clusterBkg':'#fafbfc','clusterBorder':'#888','tertiaryColor':'#ffffff','tertiaryBorderColor':'#888','tertiaryTextColor':'#000','noteBkgColor':'#fff8c5','noteTextColor':'#000','noteBorderColor':'#b5a000','actorBkg':'#eef6ff','actorBorder':'#0366d6','actorTextColor':'#000','signalColor':'#333','signalTextColor':'#000','sequenceNumberColor':'#fff'}}}%%
 flowchart TB
     subgraph CERT["📜 X.509 Certificate (DER bytes)"]
         direction TB
@@ -314,6 +386,7 @@ issuer is itself. Why is this OK? Because clients don't trust the root
 in their trust store**, shipped with the OS or browser.
 
 ```{mermaid}
+%%{init: {'theme':'base', 'themeVariables': {'background':'#ffffff','primaryColor':'#eef6ff','primaryBorderColor':'#0366d6','primaryTextColor':'#000','lineColor':'#555','clusterBkg':'#fafbfc','clusterBorder':'#888','tertiaryColor':'#ffffff','tertiaryBorderColor':'#888','tertiaryTextColor':'#000','noteBkgColor':'#fff8c5','noteTextColor':'#000','noteBorderColor':'#b5a000','actorBkg':'#eef6ff','actorBorder':'#0366d6','actorTextColor':'#000','signalColor':'#333','signalTextColor':'#000','sequenceNumberColor':'#fff'}}}%%
 flowchart LR
     ROOT["🏛️ Root CA cert<br/>━━━━━━━━━━━━<br/>subject: Root CA<br/>issuer: <b>Root CA</b> (itself)<br/>public_key: K_root"]
     PRIV_ROOT["🔒 Root private key"]
@@ -334,6 +407,7 @@ the root signs an **Intermediate CA**, and the intermediate does the
 day-to-day signing.
 
 ```{mermaid}
+%%{init: {'theme':'base', 'themeVariables': {'background':'#ffffff','primaryColor':'#eef6ff','primaryBorderColor':'#0366d6','primaryTextColor':'#000','lineColor':'#555','clusterBkg':'#fafbfc','clusterBorder':'#888','tertiaryColor':'#ffffff','tertiaryBorderColor':'#888','tertiaryTextColor':'#000','noteBkgColor':'#fff8c5','noteTextColor':'#000','noteBorderColor':'#b5a000','actorBkg':'#eef6ff','actorBorder':'#0366d6','actorTextColor':'#000','signalColor':'#333','signalTextColor':'#000','sequenceNumberColor':'#fff'}}}%%
 flowchart LR
     PRIV_ROOT["🔒 Root private key<br/>(in a vault)"]
     INT_BODY["📄 Intermediate body<br/>subject: Intermediate CA<br/>public_key: K_int<br/>BasicConstraints: <b>ca=True</b>"]
@@ -351,6 +425,7 @@ The intermediate CA now signs the actual **server certificate**. This one has
 `ca=False` (it cannot sign anything else) and lists the DNS names it covers.
 
 ```{mermaid}
+%%{init: {'theme':'base', 'themeVariables': {'background':'#ffffff','primaryColor':'#eef6ff','primaryBorderColor':'#0366d6','primaryTextColor':'#000','lineColor':'#555','clusterBkg':'#fafbfc','clusterBorder':'#888','tertiaryColor':'#ffffff','tertiaryBorderColor':'#888','tertiaryTextColor':'#000','noteBkgColor':'#fff8c5','noteTextColor':'#000','noteBorderColor':'#b5a000','actorBkg':'#eef6ff','actorBorder':'#0366d6','actorTextColor':'#000','signalColor':'#333','signalTextColor':'#000','sequenceNumberColor':'#fff'}}}%%
 flowchart LR
     PRIV_INT["🔒 Intermediate private key"]
     SRV_BODY["📄 Server body<br/>subject: localhost<br/>public_key: K_srv<br/>SAN: <b>localhost</b><br/>BasicConstraints: <b>ca=False</b>"]
@@ -368,6 +443,7 @@ Now stack the three together. Each arrow is one signature; the colour of the
 key tells you who held the pen.
 
 ```{mermaid}
+%%{init: {'theme':'base', 'themeVariables': {'background':'#ffffff','primaryColor':'#eef6ff','primaryBorderColor':'#0366d6','primaryTextColor':'#000','lineColor':'#555','clusterBkg':'#fafbfc','clusterBorder':'#888','tertiaryColor':'#ffffff','tertiaryBorderColor':'#888','tertiaryTextColor':'#000','noteBkgColor':'#fff8c5','noteTextColor':'#000','noteBorderColor':'#b5a000','actorBkg':'#eef6ff','actorBorder':'#0366d6','actorTextColor':'#000','signalColor':'#333','signalTextColor':'#000','sequenceNumberColor':'#fff'}}}%%
 flowchart TB
     subgraph TRUSTED["📦 Client trust store"]
         ROOT["🏛️ Root cert<br/>K_root, self-signed"]
@@ -386,6 +462,7 @@ Verifying the chain on the client side is just checking each link in turn,
 starting from the leaf:
 
 ```{mermaid}
+%%{init: {'theme':'base', 'themeVariables': {'background':'#ffffff','primaryColor':'#eef6ff','primaryBorderColor':'#0366d6','primaryTextColor':'#000','lineColor':'#555','clusterBkg':'#fafbfc','clusterBorder':'#888','tertiaryColor':'#ffffff','tertiaryBorderColor':'#888','tertiaryTextColor':'#000','noteBkgColor':'#fff8c5','noteTextColor':'#000','noteBorderColor':'#b5a000','actorBkg':'#eef6ff','actorBorder':'#0366d6','actorTextColor':'#000','signalColor':'#333','signalTextColor':'#000','sequenceNumberColor':'#fff'}}}%%
 flowchart LR
     Q1["Server cert valid?<br/>signed by K_int? ✅"] -->
     Q2["Intermediate valid?<br/>signed by K_root? ✅"] -->
@@ -414,6 +491,7 @@ $$
 $$
 
 ```{mermaid}
+%%{init: {'theme':'base', 'themeVariables': {'background':'#ffffff','primaryColor':'#eef6ff','primaryBorderColor':'#0366d6','primaryTextColor':'#000','lineColor':'#555','clusterBkg':'#fafbfc','clusterBorder':'#888','tertiaryColor':'#ffffff','tertiaryBorderColor':'#888','tertiaryTextColor':'#000','noteBkgColor':'#fff8c5','noteTextColor':'#000','noteBorderColor':'#b5a000','actorBkg':'#eef6ff','actorBorder':'#0366d6','actorTextColor':'#000','signalColor':'#333','signalTextColor':'#000','sequenceNumberColor':'#fff'}}}%%
 flowchart LR
     SPKI["📦 subjectPublicKeyInfo<br/>(public key bytes inside the cert)"] --> H["SHA-1"]
     H --> SKI["🆔 SubjectKeyIdentifier<br/>e.g. 7c:a5:1e:9b:…"]
@@ -423,6 +501,7 @@ Chain matching then becomes a simple lookup: for each certificate, look at
 its `AKI` and find the cert in the chain whose `SKI` equals it.
 
 ```{mermaid}
+%%{init: {'theme':'base', 'themeVariables': {'background':'#ffffff','primaryColor':'#eef6ff','primaryBorderColor':'#0366d6','primaryTextColor':'#000','lineColor':'#555','clusterBkg':'#fafbfc','clusterBorder':'#888','tertiaryColor':'#ffffff','tertiaryBorderColor':'#888','tertiaryTextColor':'#000','noteBkgColor':'#fff8c5','noteTextColor':'#000','noteBorderColor':'#b5a000','actorBkg':'#eef6ff','actorBorder':'#0366d6','actorTextColor':'#000','signalColor':'#333','signalTextColor':'#000','sequenceNumberColor':'#fff'}}}%%
 flowchart LR
     SRV["🖥️ Server cert<br/>SKI: <b>S_srv</b><br/>AKI: <b>S_int</b> ──┐"]
     INT["🏢 Intermediate cert<br/>SKI: <b>S_int</b> ◀──────────┘<br/>AKI: <b>S_root</b> ──┐"]
@@ -460,6 +539,7 @@ sign right now — namely, the two **ephemeral** X25519 public keys that this
 specific session is using.
 
 ```{mermaid}
+%%{init: {'theme':'base', 'themeVariables': {'background':'#ffffff','primaryColor':'#eef6ff','primaryBorderColor':'#0366d6','primaryTextColor':'#000','lineColor':'#555','clusterBkg':'#fafbfc','clusterBorder':'#888','tertiaryColor':'#ffffff','tertiaryBorderColor':'#888','tertiaryTextColor':'#000','noteBkgColor':'#fff8c5','noteTextColor':'#000','noteBorderColor':'#b5a000','actorBkg':'#eef6ff','actorBorder':'#0366d6','actorTextColor':'#000','signalColor':'#333','signalTextColor':'#000','sequenceNumberColor':'#fff'}}}%%
 sequenceDiagram
     participant C as Client
     participant S as Server (holds 🔒 identity_private_key)
@@ -484,13 +564,25 @@ Why concatenate `client_ephemeral_public ‖ server_ephemeral_public`?
 The two checks together — **chain** *and* **fresh signature** — are what
 finally close the MITM gap from Part 3.
 
-### Under the hood: what `sign()` and `verify()` actually compute
+### Under the hood: the CertificateVerify signature, concretely
 
-The "sign" and "verify" boxes in the diagrams are doing concrete crypto.
-Our protocol uses **RSA-PSS with SHA-256** (the same scheme TLS 1.3 uses
-for RSA certificates):
+We covered the generic `sign()` / `verify()` recipe back in
+[§Public-key cryptography in one picture](#sec-concepts) (hash → algorithm).
+Here we just plug in the concrete values used by the handshake. The
+algorithm choice is **RSA-PSS with SHA-256** — the same scheme TLS 1.3 uses
+for RSA certificates.
+
+|                       | Generic recipe              | CertificateVerify in this protocol                                          |
+|-----------------------|-----------------------------|-----------------------------------------------------------------------------|
+| Message               | any bytes                   | `client_ephemeral_public ‖ server_ephemeral_public`                         |
+| Hash                  | a cryptographic hash        | SHA-256 → 32-byte digest                                                    |
+| Signature algorithm   | RSA-PSS / ECDSA / Ed25519 / … | RSA-PSS (MGF1-SHA-256, max salt length)                                     |
+| Signer's private key  | `private_key`               | 🔒 `identity_private_key` (RSA-2048, server-only, on disk)                  |
+| Verifier's public key | `public_key`                | 🪪 `identity_public_key` (read from the **already-verified** identity cert) |
+| Signature size        | depends on algorithm        | 256 bytes (for RSA-2048)                                                    |
 
 ```{mermaid}
+%%{init: {'theme':'base', 'themeVariables': {'background':'#ffffff','primaryColor':'#eef6ff','primaryBorderColor':'#0366d6','primaryTextColor':'#000','lineColor':'#555','clusterBkg':'#fafbfc','clusterBorder':'#888','tertiaryColor':'#ffffff','tertiaryBorderColor':'#888','tertiaryTextColor':'#000','noteBkgColor':'#fff8c5','noteTextColor':'#000','noteBorderColor':'#b5a000','actorBkg':'#eef6ff','actorBorder':'#0366d6','actorTextColor':'#000','signalColor':'#333','signalTextColor':'#000','sequenceNumberColor':'#fff'}}}%%
 flowchart TB
     subgraph SIGN_SIDE["✍️ On the server (sign)"]
         direction TB
@@ -498,7 +590,7 @@ flowchart TB
         M1 --> H1["SHA-256"]
         H1 --> DIG1["32-byte digest"]
         DIG1 --> RSA1["RSA-PSS sign<br/>with 🔒 identity_private_key"]
-        RSA1 --> SIG1["✍️ signature (256 bytes for RSA-2048)"]
+        RSA1 --> SIG1["✍️ signature (256 bytes)"]
     end
 
     subgraph VERIFY_SIDE["🔎 On the client (verify)"]
@@ -512,10 +604,12 @@ flowchart TB
     end
 ```
 
-The asymmetry is what gives the security: only the holder of
-`identity_private_key` can produce a signature that verifies under
-`identity_public_key`. And because the digest covers *both* ephemeral
-public keys, the signature is uniquely tied to this one session.
+What this specific instance buys us beyond the generic guarantees:
+
+- Only the holder of `identity_private_key` can produce a signature that
+  verifies — that's authentication of *who*.
+- The digest covers *both* ephemeral public keys, so the signature is
+  uniquely tied to **this one session** — no replay across connections.
 
 ::: {.callout-note}
 ## Reality check: what does TLS 1.3 actually sign?
@@ -543,6 +637,7 @@ The Part 4 implementation lives in [part_4/implementation/](../implementation/):
 The full authenticated handshake looks like this:
 
 ```{mermaid}
+%%{init: {'theme':'base', 'themeVariables': {'background':'#ffffff','primaryColor':'#eef6ff','primaryBorderColor':'#0366d6','primaryTextColor':'#000','lineColor':'#555','clusterBkg':'#fafbfc','clusterBorder':'#888','tertiaryColor':'#ffffff','tertiaryBorderColor':'#888','tertiaryTextColor':'#000','noteBkgColor':'#fff8c5','noteTextColor':'#000','noteBorderColor':'#b5a000','actorBkg':'#eef6ff','actorBorder':'#0366d6','actorTextColor':'#000','signalColor':'#333','signalTextColor':'#000','sequenceNumberColor':'#fff'}}}%%
 sequenceDiagram
     autonumber
     participant C as Client
@@ -834,6 +929,7 @@ If anything fails it raises an exception. On success it returns the verified
 chain (leaf → … → root) as a list.
 
 ```{mermaid}
+%%{init: {'theme':'base', 'themeVariables': {'background':'#ffffff','primaryColor':'#eef6ff','primaryBorderColor':'#0366d6','primaryTextColor':'#000','lineColor':'#555','clusterBkg':'#fafbfc','clusterBorder':'#888','tertiaryColor':'#ffffff','tertiaryBorderColor':'#888','tertiaryTextColor':'#000','noteBkgColor':'#fff8c5','noteTextColor':'#000','noteBorderColor':'#b5a000','actorBkg':'#eef6ff','actorBorder':'#0366d6','actorTextColor':'#000','signalColor':'#333','signalTextColor':'#000','sequenceNumberColor':'#fff'}}}%%
 flowchart TB
     L["Server cert<br/>SAN: localhost<br/>AKI = X"] -->|signed by| I["Intermediate<br/>SKI = X<br/>AKI = Y"]
     I -->|signed by| R["Root<br/>SKI = Y<br/>(in trust store)"]
@@ -1126,6 +1222,7 @@ Loaded trusted root: <Name(...,CN=Root CA)>
 Replay the attack from @sec-mitm against the Part 4 protocol:
 
 ```{mermaid}
+%%{init: {'theme':'base', 'themeVariables': {'background':'#ffffff','primaryColor':'#eef6ff','primaryBorderColor':'#0366d6','primaryTextColor':'#000','lineColor':'#555','clusterBkg':'#fafbfc','clusterBorder':'#888','tertiaryColor':'#ffffff','tertiaryBorderColor':'#888','tertiaryTextColor':'#000','noteBkgColor':'#fff8c5','noteTextColor':'#000','noteBorderColor':'#b5a000','actorBkg':'#eef6ff','actorBorder':'#0366d6','actorTextColor':'#000','signalColor':'#333','signalTextColor':'#000','sequenceNumberColor':'#fff'}}}%%
 sequenceDiagram
     participant C as Client
     participant M as Mallory
