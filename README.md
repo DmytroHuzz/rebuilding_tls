@@ -3,6 +3,19 @@
 > Educational companion code for the article series
 > **[Rebuilding TLS from Scratch — My Complete Learning Journey](https://www.dmytrohuz.com/p/rebuilding-tls-from-scratch-my-complete)**.
 
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/DmytroHuzz/rebuilding_tls?quickstart=1)
+
+Click the badge to launch a fully configured Python environment in your
+browser. The devcontainer ([`.devcontainer/devcontainer.json`](.devcontainer/devcontainer.json))
+installs `cryptography` automatically, so once the Codespace is ready you
+can run any of the demos straight away — for example:
+
+```bash
+make part4-certs
+make part4-server   # terminal 1
+make part4-client   # terminal 2 (open a second terminal in the Codespace)
+```
+
 ## What this project is
 
 This repository rebuilds a TLS-like secure channel from the ground up, in
