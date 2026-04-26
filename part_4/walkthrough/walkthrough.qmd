@@ -23,6 +23,28 @@ format:
     number-sections: true
 ---
 
+# About this article {#sec-about}
+
+This is **Part 4** of the *Rebuilding TLS from scratch* series, where I build
+a TLS-like secure channel one feature at a time, in plain Python, so the
+mental models behind it become visible.
+
+In this part we close the last big gap left by the previous installments:
+**authentication**. We add an X.509 certificate chain plus a per-session
+signature, and watch a man-in-the-middle attack stop working.
+
+- **Series index** (start here if you are new):
+  [dmytrohuz.com — Rebuilding TLS from scratch, my complete series](https://www.dmytrohuz.com/p/rebuilding-tls-from-scratch-my-complete)
+- **All the code** (Parts 1–4, runnable):
+  [github.com/DmytroHuzz/rebuilding_tls](https://github.com/DmytroHuzz/rebuilding_tls)
+- **Questions, feedback, or you spotted a bug?** Reach out on LinkedIn:
+  [linkedin.com/in/dmitriyhuz](https://www.linkedin.com/in/dmitriyhuz/)
+
+The walkthrough is meant for developers who have used HTTPS / TLS as
+consumers (web services, API clients, the browser padlock) but never opened
+the cover. No prior cryptography background is assumed beyond *"there is
+such a thing as a public key and a private key"*.
+
 # Where we are coming from {#sec-recap}
 
 Across the previous parts of this series we built a small but real secure channel:
@@ -1144,18 +1166,25 @@ Part 2 / Part 3 v3.
 
 ## Step 7 — Server and client wiring {#sec-step7}
 
-[server_v4.py](../implementation/server_v4.py) loads the credentials, runs the
-authenticated handshake, and then exchanges one application record:
+[server_v4.py](../implementation/server_v4.py) loads the long-term IDENTITY
+material, runs the authenticated handshake, and then exchanges one
+application record:
 
 ```python
-server_key, server_cert, intermediate_certs = load_server_credentials()
+# Load the server's long-term IDENTITY (RSA private key + cert chain).
+server_identity_private_key, server_identity_cert, intermediate_certs = (
+    load_server_identity()
+)
 
 with socket.socket(...) as server:
     conn, addr = server.accept()
+
+    # The handshake itself generates the per-connection EPHEMERAL
+    # X25519 keypair internally and returns the derived session keys.
     client_write_key, server_write_key = server_handshake(
         conn,
-        server_private_key=server_key,
-        server_cert=server_cert,
+        server_identity_private_key=server_identity_private_key,
+        server_identity_cert=server_identity_cert,
         intermediate_certs=intermediate_certs,
     )
 
@@ -1167,7 +1196,8 @@ with socket.socket(...) as server:
 
 [client_v4.py](../implementation/client_v4.py) is symmetric: it loads the
 trusted root, runs the authenticated handshake, then sends an HTTP-style
-request inside one AEAD record:
+request inside one AEAD record. The client never owns an identity key —
+it only *trusts* one (transitively, via `trusted_root`):
 
 ```python
 trusted_root = load_trusted_root()
@@ -1205,14 +1235,15 @@ Expected output highlights on the client:
 ```
 Loaded trusted root: <Name(...,CN=Root CA)>
 [handshake] Client: starting authenticated handshake
-  Generated ephemeral keypair
+  Generated EPHEMERAL X25519 keypair (this session only)
   -> Sent ClientHello
   <- Received ServerHello
   <- Received ServerAuth
-  Verifying certificate chain for 'localhost'...
-  Certificate chain: VALID
-  Verifying CertificateVerify signature...
-  CertificateVerify: VALID
+  Verifying IDENTITY certificate chain for 'localhost'...
+  Identity certificate chain: VALID
+  Verifying CertificateVerify (binds identity → this session)...
+  CertificateVerify: VALID — peer is the real 'localhost'
+  X25519 shared secret: ...
   [key_schedule] Derived session keys: ...
 [handshake] Client: handshake complete — authenticated session keys ready
 ```
@@ -1228,21 +1259,23 @@ sequenceDiagram
     participant M as Mallory
     participant S as Server
 
-    C->>M: ClientHello (client_pub)
-    M->>S: ClientHello (mallory_pub_B)
-    S->>M: ServerHello (server_pub) + ServerAuth { server_cert, sig over (mallory_pub_B || server_pub) }
-    M->>C: ServerHello (mallory_pub_A) + ServerAuth { ??? , ??? }
-    Note over C: verify chain → must end at trusted root<br/>verify sig over (client_pub || mallory_pub_A)
-    Note over C: ❌ Mallory cannot produce that signature<br/>without server's private key
+    C->>M: ClientHello (⚡ client_eph_pub)
+    M->>S: ClientHello (⚡ mallory_eph_pub_B)
+    S->>M: ServerHello (⚡ server_eph_pub) + ServerAuth { 📜 server_identity_cert,<br/>sig over (mallory_eph_pub_B ‖ server_eph_pub) }
+    M->>C: ServerHello (⚡ mallory_eph_pub_A) + ServerAuth { ??? , ??? }
+    Note over C: verify identity chain → must end at trusted root<br/>verify sig over (client_eph_pub ‖ mallory_eph_pub_A)<br/>using server_identity_cert.public_key
+    Note over C: ❌ Mallory cannot produce that signature<br/>without the server's IDENTITY private key
 ```
 
 Mallory has two impossible tasks:
 
-1. **Provide a valid certificate chain** for the server's name. Without
-   compromising a CA, she cannot.
-2. **Forge a signature** over `(client_pub, mallory_pub_A)` using the server's
-   private key. The server only signed `(mallory_pub_B, server_pub)`, and
-   Mallory does not have the server's private key to re-sign new keys.
+1. **Provide a valid identity certificate chain** for the server's name.
+   Without compromising a CA, she cannot.
+2. **Forge a CertificateVerify signature** over
+   `(client_eph_pub ‖ mallory_eph_pub_A)` using the server's identity
+   private key. The server only signed
+   `(mallory_eph_pub_B ‖ server_eph_pub)`, and Mallory does not have the
+   server's identity private key to re-sign new ephemeral keys.
 
 Either she gives up impersonating the server, or the verification fails on the
 client and the connection is aborted before any application data is sent.
@@ -1264,8 +1297,9 @@ trust.
 Compared to real TLS 1.3 we deliberately leave several things out:
 
 - **Only server authentication.** No client certificates / mutual TLS.
-- **Signed bytes are just `pubC || pubS`.** Real TLS signs a hash of the entire
-  handshake transcript, which prevents a wider class of downgrade attacks.
+- **Signed bytes are just `client_ephemeral_pub ‖ server_ephemeral_pub`.**
+  Real TLS signs a hash of the entire handshake transcript, which prevents a
+  wider class of downgrade attacks.
 - **No cipher-suite negotiation.** AES-256-GCM and X25519 are hardcoded.
 - **No revocation checking** (CRL / OCSP). A compromised intermediate would
   remain trusted until expiry.
