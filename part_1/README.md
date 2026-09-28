@@ -1,7 +1,7 @@
 # Part 1 — Encryption Without Integrity
 
 > ⬆ [Back to repository root](../README.md)
-> · 📘 Article: [Building Your Own TLS — Part 1](https://www.dmytrohuz.com/p/45f5ee51-a230-4937-b025-cf4784aed417)
+> · 📘 Article: [Building Your Own TLS — Part 1](https://www.softwareinthegrid.com/p/45f5ee51-a230-4937-b025-cf4784aed417)
 
 ## What You'll Learn
 
