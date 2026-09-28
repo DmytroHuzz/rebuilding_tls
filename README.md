@@ -312,7 +312,7 @@ project deliberately leaves out:
   [Part 4](https://www.softwareinthegrid.com/p/rebuilding-tls-part-4-certificates)
 - Part 4 walkthrough (rendered) — [dmytrohuzz.github.io/rebuilding_tls/.../walkthrough.html](https://dmytrohuzz.github.io/rebuilding_tls/part_4/walkthrough/walkthrough.html)
 - Repository — [github.com/DmytroHuzz/rebuilding_tls](https://github.com/DmytroHuzz/rebuilding_tls)
-- Author's blog / newsletter — [dmytrohuz.com](https://www.softwareinthegrid.com/)
+- Author's blog / newsletter — [softwareinthegrid.com](https://www.softwareinthegrid.com/)
 - Questions, feedback, found a bug? — [LinkedIn: dmitriyhuz](https://www.linkedin.com/in/dmitriyhuz/)
 
 ---
