@@ -1,5 +1,7 @@
 # Rebuilding TLS from Scratch
 
+This project is part of **Software Foundations**, the first-principles systems work behind [Software in the Grid](https://www.softwareinthegrid.com/).
+
 > Educational companion code for the article series
 > **[Rebuilding TLS from Scratch — My Complete Learning Journey](https://www.softwareinthegrid.com/p/rebuilding-tls-from-scratch-my-complete)**.
 
