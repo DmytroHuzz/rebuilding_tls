@@ -1,7 +1,7 @@
 # Rebuilding TLS from Scratch
 
 > Educational companion code for the article series
-> **[Rebuilding TLS from Scratch — My Complete Learning Journey](https://www.dmytrohuz.com/p/rebuilding-tls-from-scratch-my-complete)**.
+> **[Rebuilding TLS from Scratch — My Complete Learning Journey](https://www.softwareinthegrid.com/p/rebuilding-tls-from-scratch-my-complete)**.
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/DmytroHuzz/rebuilding_tls?quickstart=1)
 
@@ -47,7 +47,7 @@ Three reasonable ways to read this repo:
 ### 1. You want the story and the explanations first
 
 Start with the article series:
-**[Rebuilding TLS from Scratch — My Complete Learning Journey](https://www.dmytrohuz.com/p/rebuilding-tls-from-scratch-my-complete)**.
+**[Rebuilding TLS from Scratch — My Complete Learning Journey](https://www.softwareinthegrid.com/p/rebuilding-tls-from-scratch-my-complete)**.
 
 For Part 4 specifically, the rendered walkthrough (with diagrams) lives at
 **[part_4 walkthrough (HTML)](https://dmytrohuzz.github.io/rebuilding_tls/part_4/walkthrough/walkthrough.html)**.
@@ -101,7 +101,7 @@ motivates the next part.
 - **Reveals:** encryption alone is not enough. A live demo
   (`ctr_malleability_demo.py`) flips a single ciphertext byte and turns
   `amount=100` into `amount=900` — without the key.
-- **Article:** [Building Your Own TLS — Part 1](https://www.dmytrohuz.com/p/45f5ee51-a230-4937-b025-cf4784aed417).
+- **Article:** [Building Your Own TLS — Part 1](https://www.softwareinthegrid.com/p/45f5ee51-a230-4937-b025-cf4784aed417).
 
 ### Part 2 — Adding Integrity → [`part_2/README.md`](part_2/README.md)
 
@@ -112,7 +112,7 @@ motivates the next part.
 - **Reveals:** even with integrity, both sides still depend on a hardcoded
   pre-shared key — there is no way to bootstrap a session key over the
   network.
-- **Article:** [Building Your Own TLS — Part 2](https://www.dmytrohuz.com/p/rebuilding-tls-part-2-adding-integrity).
+- **Article:** [Building Your Own TLS — Part 2](https://www.softwareinthegrid.com/p/rebuilding-tls-part-2-adding-integrity).
 
 ### Part 3 — Handshake & Session Keys → [`part_3/README.md`](part_3/README.md)
 
@@ -136,7 +136,7 @@ motivates the next part.
 - **Reveals:** the MITM from Part 3 is closed — the client now trusts
   the server's identity (chain) **and** that this specific session was
   signed by it (CertificateVerify).
-- **Article:** [Building Your Own TLS — Part 4](https://www.dmytrohuz.com/p/rebuilding-tls-part-4-certificates).
+- **Article:** [Building Your Own TLS — Part 4](https://www.softwareinthegrid.com/p/rebuilding-tls-part-4-certificates).
 - **Walkthrough:** rendered HTML at
   [dmytrohuzz.github.io/rebuilding_tls/part_4/walkthrough/walkthrough.html](https://dmytrohuzz.github.io/rebuilding_tls/part_4/walkthrough/walkthrough.html)
   (diagrams, structural explanations, end-to-end code).
@@ -305,14 +305,14 @@ project deliberately leaves out:
 
 ## Links
 
-- Series landing page — **[Rebuilding TLS from Scratch — My Complete Learning Journey](https://www.dmytrohuz.com/p/rebuilding-tls-from-scratch-my-complete)**
+- Series landing page — **[Rebuilding TLS from Scratch — My Complete Learning Journey](https://www.softwareinthegrid.com/p/rebuilding-tls-from-scratch-my-complete)**
 - Per-part articles —
-  [Part 1](https://www.dmytrohuz.com/p/45f5ee51-a230-4937-b025-cf4784aed417) ·
-  [Part 2](https://www.dmytrohuz.com/p/rebuilding-tls-part-2-adding-integrity) ·
-  [Part 4](https://www.dmytrohuz.com/p/rebuilding-tls-part-4-certificates)
+  [Part 1](https://www.softwareinthegrid.com/p/45f5ee51-a230-4937-b025-cf4784aed417) ·
+  [Part 2](https://www.softwareinthegrid.com/p/rebuilding-tls-part-2-adding-integrity) ·
+  [Part 4](https://www.softwareinthegrid.com/p/rebuilding-tls-part-4-certificates)
 - Part 4 walkthrough (rendered) — [dmytrohuzz.github.io/rebuilding_tls/.../walkthrough.html](https://dmytrohuzz.github.io/rebuilding_tls/part_4/walkthrough/walkthrough.html)
 - Repository — [github.com/DmytroHuzz/rebuilding_tls](https://github.com/DmytroHuzz/rebuilding_tls)
-- Author's blog / newsletter — [dmytrohuz.com](https://www.dmytrohuz.com/)
+- Author's blog / newsletter — [dmytrohuz.com](https://www.softwareinthegrid.com/)
 - Questions, feedback, found a bug? — [LinkedIn: dmitriyhuz](https://www.linkedin.com/in/dmitriyhuz/)
 
 ---
