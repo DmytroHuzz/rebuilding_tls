@@ -1,7 +1,7 @@
 # Part 4 — Certificate-Authenticated Secure Channel
 
 > ⬆ [Back to repository root](../../README.md)
-> · � Article: [Building Your Own TLS — Part 4](https://www.dmytrohuz.com/p/rebuilding-tls-part-4-certificates)
+> · � Article: [Building Your Own TLS — Part 4](https://www.softwareinthegrid.com/p/rebuilding-tls-part-4-certificates)
 > · �📖 Walkthrough article: [walkthrough.html (rendered)](https://dmytrohuzz.github.io/rebuilding_tls/part_4/walkthrough/walkthrough.html)
 > · ✏️ Walkthrough source: [`part_4/walkthrough/walkthrough.qmd`](../walkthrough/walkthrough.qmd)
 
